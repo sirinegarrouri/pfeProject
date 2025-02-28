@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "576374987805",
+    "project_id": "alertsys-80d0e",
+    "storage_bucket": "alertsys-80d0e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:576374987805:android:f4ca3a2c738916898ffaf4",
+        "android_client_info": {
+          "package_name": "com.example.alert_sysv1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCcZXhULRhMITDEXB4wt2_VFD9W8D1Vk2Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:576374987805:android:6ca2476b802272578ffaf4",
+        "android_client_info": {
+          "package_name": "com.example.pfe_version1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCcZXhULRhMITDEXB4wt2_VFD9W8D1Vk2Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
