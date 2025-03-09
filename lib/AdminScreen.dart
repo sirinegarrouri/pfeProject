@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'UserDetailsScreen.dart'; // Assuming this is the UserDetailsScreen file
+import 'UserDetailsScreen.dart';
 
 class AdminScreen extends StatefulWidget {
   @override
@@ -9,13 +9,12 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  bool isDarkMode = false;
 
-  // Method to fetch users
   Stream<QuerySnapshot> _getUsers() {
     return _firestore.collection('users').snapshots();
   }
 
-  // Display user list with card design
   Widget _buildUserList(BuildContext context, QuerySnapshot snapshot) {
     return ListView.builder(
       itemCount: snapshot.docs.length,
@@ -24,59 +23,50 @@ class _AdminScreenState extends State<AdminScreen> {
         var userId = snapshot.docs[index].id;
 
         return Card(
-          margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
-          elevation: 5,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(15.0),
-            child: Column(
+          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 15),
+          elevation: 6,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          color: isDarkMode ? Colors.grey[900] : Colors.white,
+          child: ListTile(
+            contentPadding: const EdgeInsets.all(15),
+            leading: CircleAvatar(
+              backgroundColor: Colors.blueAccent,
+              child: Icon(Icons.person, color: Colors.white),
+            ),
+            title: Text(
+              user['email'] ?? "No Email",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDarkMode ? Colors.white : Colors.black,
+              ),
+            ),
+            subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Email: ${user['email']}",
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                Text("📞 ${user['phone'] ?? 'No Phone'}",
+                    style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
+                Text("🔹 Role: ${user['role'] ?? 'Unknown'}",
+                    style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.orange),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => UserDetailsScreen(userId: userId)),
+                    );
+                  },
                 ),
-                const SizedBox(height: 10),
-                Text("Phone: ${user['phone']}", style: const TextStyle(fontSize: 16)),
-                const SizedBox(height: 5),
-                Text("Role: ${user['role']}", style: const TextStyle(fontSize: 16)),
-                const SizedBox(height: 15),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    ElevatedButton(
-                      onPressed: () {
-                        // Navigate to User Details for editing
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => UserDetailsScreen(userId: userId),
-                          ),
-                        );
-                      },
-                      child: const Text("Edit"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        // Delete user from Firestore
-                        await _firestore.collection('users').doc(userId).delete();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("User deleted successfully")),
-                        );
-                      },
-                      child: const Text("Delete"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
-                      ),
-                    ),
-                  ],
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () {
+                    _confirmDelete(context, userId);
+                  },
                 ),
               ],
             ),
@@ -86,77 +76,95 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  // Drawer Widget
+  // 🔴 Delete Confirmation Dialog
+  void _confirmDelete(BuildContext context, String userId) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Confirm Deletion"),
+          content: const Text("Are you sure you want to delete this user?"),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // ❌ Close dialog
+              },
+              child: const Text("Cancel"),
+            ),
+            TextButton(
+              onPressed: () async {
+                await _firestore.collection('users').doc(userId).delete();
+                Navigator.of(context).pop(); // ✅ Close dialog
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("User deleted successfully")),
+                );
+              },
+              child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildDrawer() {
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: <Widget>[
+      child: Column(
+        children: [
           DrawerHeader(
-            decoration: const BoxDecoration(
-              color: Colors.blueAccent,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [Colors.blueAccent, Colors.lightBlue]),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Icon(Icons.admin_panel_settings, color: Colors.white, size: 50),
-                SizedBox(height: 10),
-                Text(
-                  'Admin Panel',
-                  style: TextStyle(color: Colors.white, fontSize: 24),
+            child: Row(
+              children: [
+                const Icon(Icons.admin_panel_settings, color: Colors.white, size: 50),
+                const SizedBox(width: 10),
+                const Text('Admin Panel', style: TextStyle(color: Colors.white, fontSize: 24)),
+                const Spacer(),
+                Switch(
+                  value: isDarkMode,
+                  onChanged: (value) {
+                    setState(() {
+                      isDarkMode = value;
+                    });
+                  },
                 ),
               ],
             ),
           ),
-          ListTile(
-            title: const Text('Users List'),
-            leading: const Icon(Icons.list),
-            onTap: () {
-              // Navigate to the Users List page
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => AdminScreen()),
-              );
-            },
-          ),
-          // You can add more menu items here, like "Settings", "Logs", etc.
-          ListTile(
-            title: const Text('Settings'),
-            leading: const Icon(Icons.settings),
-            onTap: () {
-              // Implement Settings screen navigation if needed
-            },
-          ),
-          ListTile(
-            title: const Text('Logout'),
-            leading: const Icon(Icons.logout),
-            onTap: () {
-              // Implement Logout functionality here
-            },
-          ),
+          _buildDrawerItem(Icons.list, "Users List", () {}),
+          _buildDrawerItem(Icons.settings, "Settings", () {}),
+          _buildDrawerItem(Icons.logout, "Logout", () {}),
         ],
       ),
+    );
+  }
+
+  Widget _buildDrawerItem(IconData icon, String title, VoidCallback onTap) {
+    return ListTile(
+      leading: Icon(icon, color: isDarkMode ? Colors.white70 : Colors.black),
+      title: Text(title, style: TextStyle(color: isDarkMode ? Colors.white : Colors.black)),
+      onTap: onTap,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: isDarkMode ? Colors.black : Colors.grey[200],
       appBar: AppBar(
         title: const Text("Admin Panel"),
         backgroundColor: Colors.blueAccent,
-        leading: Builder(
-          builder: (context) {
-            // This Builder widget allows us to use Scaffold.of(context)
-            return IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () {
-                // Open the drawer when clicking the menu icon
-                Scaffold.of(context).openDrawer();
-              },
-            );
-          },
-        ),
+        actions: [
+          IconButton(
+            icon: Icon(isDarkMode ? Icons.dark_mode : Icons.light_mode),
+            onPressed: () {
+              setState(() {
+                isDarkMode = !isDarkMode;
+              });
+            },
+          )
+        ],
       ),
       drawer: _buildDrawer(),
       body: Padding(
@@ -167,19 +175,17 @@ class _AdminScreenState extends State<AdminScreen> {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-
             if (snapshot.hasError) {
               return const Center(child: Text("Error loading users"));
             }
-
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
               return const Center(child: Text("No users found"));
             }
-
             return _buildUserList(context, snapshot.data!);
           },
         ),
       ),
+
     );
   }
 }
