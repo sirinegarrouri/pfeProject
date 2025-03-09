@@ -15,6 +15,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
   late TextEditingController _emailController;
   late TextEditingController _phoneController;
   late TextEditingController _roleController;
+  bool isDarkMode = false;
 
   @override
   void initState() {
@@ -68,6 +69,16 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       appBar: AppBar(
         title: const Text("User Details"),
         backgroundColor: Colors.blueAccent,
+        actions: [
+          IconButton(
+            icon: Icon(isDarkMode ? Icons.dark_mode : Icons.light_mode),
+            onPressed: () {
+              setState(() {
+                isDarkMode = !isDarkMode;
+              });
+            },
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
@@ -92,47 +103,86 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // User details
-                  _isEditing
-                      ? TextFormField(
-                    controller: _emailController,
-                    decoration: const InputDecoration(
-                      labelText: "Email",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.email),
+                  // User details card
+                  Card(
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  )
-                      : Text(
-                    "Email: ${user['email']}",
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  _isEditing
-                      ? TextFormField(
-                    controller: _phoneController,
-                    decoration: const InputDecoration(
-                      labelText: "Phone Number",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.phone),
+                    color: isDarkMode ? Colors.grey[900] : Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Email
+                          _isEditing
+                              ? TextFormField(
+                            controller: _emailController,
+                            decoration: InputDecoration(
+                              labelText: "Email",
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.email,
+                                  color: isDarkMode ? Colors.white70 : Colors.black),
+                            ),
+                            style: TextStyle(
+                                color: isDarkMode ? Colors.white : Colors.black),
+                          )
+                              : Text(
+                            "📧 Email: ${user['email']}",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode ? Colors.white : Colors.black,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Phone
+                          _isEditing
+                              ? TextFormField(
+                            controller: _phoneController,
+                            decoration: InputDecoration(
+                              labelText: "Phone Number",
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.phone,
+                                  color: isDarkMode ? Colors.white70 : Colors.black),
+                            ),
+                            style: TextStyle(
+                                color: isDarkMode ? Colors.white : Colors.black),
+                          )
+                              : Text(
+                            "📞 Phone: ${user['phone']}",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode ? Colors.white : Colors.black,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Role
+                          _isEditing
+                              ? TextFormField(
+                            controller: _roleController,
+                            decoration: InputDecoration(
+                              labelText: "Role",
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.person,
+                                  color: isDarkMode ? Colors.white70 : Colors.black),
+                            ),
+                            style: TextStyle(
+                                color: isDarkMode ? Colors.white : Colors.black),
+                          )
+                              : Text(
+                            "🔹 Role: ${user['role']}",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  )
-                      : Text(
-                    "Phone: ${user['phone']}",
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  _isEditing
-                      ? TextFormField(
-                    controller: _roleController,
-                    decoration: const InputDecoration(
-                      labelText: "Role",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.person),
-                    ),
-                  )
-                      : Text(
-                    "Role: ${user['role']}",
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 20),
                   // Buttons
@@ -144,6 +194,9 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                         ElevatedButton(
                           onPressed: _saveUserData,
                           child: const Text("Save Changes"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                          ),
                         ),
                       // Edit button visible only in view mode
                       if (!_isEditing)
@@ -155,18 +208,16 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                           },
                           child: const Text("Edit"),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange, // Customize color for edit button
+                            backgroundColor: Colors.orange,
                           ),
                         ),
                       // Delete button visible in view mode
                       if (!_isEditing)
                         ElevatedButton(
-                          onPressed: () {
-                            _deleteUser();
-                          },
+                          onPressed: _deleteUser,
                           child: const Text("Delete"),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red, // Red color for delete button
+                            backgroundColor: Colors.red,
                           ),
                         ),
                     ],

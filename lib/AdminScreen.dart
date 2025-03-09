@@ -109,33 +109,38 @@ class _AdminScreenState extends State<AdminScreen> {
 
   Widget _buildDrawer() {
     return Drawer(
-      child: Column(
-        children: [
-          DrawerHeader(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Colors.blueAccent, Colors.lightBlue]),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.admin_panel_settings, color: Colors.white, size: 50),
-                const SizedBox(width: 10),
-                const Text('Admin Panel', style: TextStyle(color: Colors.white, fontSize: 24)),
-                const Spacer(),
-                Switch(
-                  value: isDarkMode,
-                  onChanged: (value) {
-                    setState(() {
-                      isDarkMode = value;
-                    });
-                  },
+      child: Container(
+        color: isDarkMode ? Colors.grey[900] : Colors.white,
+        child: Column(
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.blueAccent, Colors.lightBlue],
                 ),
-              ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.admin_panel_settings, color: Colors.white, size: 50),
+                  const SizedBox(width: 10),
+                  const Text('Admin Panel', style: TextStyle(color: Colors.white, fontSize: 24)),
+                  const Spacer(),
+                  Switch(
+                    value: isDarkMode,
+                    onChanged: (value) {
+                      setState(() {
+                        isDarkMode = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
             ),
-          ),
-          _buildDrawerItem(Icons.list, "Users List", () {}),
-          _buildDrawerItem(Icons.settings, "Settings", () {}),
-          _buildDrawerItem(Icons.logout, "Logout", () {}),
-        ],
+            _buildDrawerItem(Icons.list, "Users List", () {}),
+            _buildDrawerItem(Icons.settings, "Settings", () {}),
+            _buildDrawerItem(Icons.logout, "Logout", () {}),
+          ],
+        ),
       ),
     );
   }
@@ -155,16 +160,6 @@ class _AdminScreenState extends State<AdminScreen> {
       appBar: AppBar(
         title: const Text("Admin Panel"),
         backgroundColor: Colors.blueAccent,
-        actions: [
-          IconButton(
-            icon: Icon(isDarkMode ? Icons.dark_mode : Icons.light_mode),
-            onPressed: () {
-              setState(() {
-                isDarkMode = !isDarkMode;
-              });
-            },
-          )
-        ],
       ),
       drawer: _buildDrawer(),
       body: Padding(
@@ -185,7 +180,6 @@ class _AdminScreenState extends State<AdminScreen> {
           },
         ),
       ),
-
     );
   }
 }
