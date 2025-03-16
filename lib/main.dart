@@ -1,13 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'auth_service.dart';
 import 'firebase_options.dart';
-import 'profile_screen.dart';
-import 'AdminScreen.dart'; // Create AdminScreen
-import 'UserScreen.dart'; // Create UserScreen
+import 'AdminScreen.dart';
+import 'UserScreen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -90,87 +89,108 @@ class _AuthScreenState extends State<AuthScreen> {
     String? fcmToken = await FirebaseMessaging.instance.getToken();
     if (fcmToken != null) {
       await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'fcmToken': fcmToken, // Save the FCM token in Firestore
+        'fcmToken': fcmToken,
       });
     }
   }
 
+  // SIGN UP
+  // SIGN UP
   void _signUp() async {
-    User? user = await _authService.signUpWithEmail(
-      emailController.text,
-      passwordController.text,
-    );
-    if (user != null) {
-      // Add the user to Firestore with the new fields
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'email': emailController.text,
-        'phone': phoneController.text,
-        'role': roleController.text,
-      });
+    try {
+      User? user = await _authService.signUpWithEmail(
+        emailController.text.trim(),
+        passwordController.text.trim(),
+      );
 
-      // Save the FCM token
-      await _saveFcmToken(user);
+      if (user != null) {
+        String role = roleController.text.trim().toLowerCase();
 
-      // Fetch the user's role from Firestore
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+        if (role.isEmpty || (role != 'admin' && role != 'user')) {
+          if (!mounted) return;
+          _showDialog("Error", "❌ Please enter a valid role (admin/user)");
+          return;
+        }
 
-      if (userDoc.exists) {
-        String role = userDoc['role']; // Get the role
+        // Save to Firestore
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'email': emailController.text.trim(),
+          'phone': phoneController.text.trim(),
+          'role': role,
+        });
 
-        // Check the role and navigate accordingly
+        // Save FCM token
+        await _saveFcmToken(user);
+
+        print('✅ Role is $role, navigating...');
+
+        if (!mounted) return;
+
+        // Navigate based on role
         if (role == 'admin') {
-          Navigator.pushReplacementNamed(context, '/admin');
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => AdminScreen()),
+          );
         } else if (role == 'user') {
-          Navigator.pushReplacementNamed(context, '/user');
-        } else {
-          _showDialog("Error", "❌ Invalid role found.");
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => UserScreen()),
+          );
         }
       } else {
-        _showDialog("Error", "❌ User data not found.");
+        if (!mounted) return;
+        _showDialog("Error", "❌ Sign-up failed.");
       }
-
-      _showDialog("Success", "✅ User signed up: ${user.email}");
-    } else {
-      _showDialog("Error", "❌ Sign-up failed");
+    } catch (e) {
+      if (!mounted) return;
+      _showDialog("Error", "❌ ${e.toString()}");
     }
   }
-
+  // SIGN IN
   void _signIn() async {
-    User? user = await _authService.signInWithEmail(
-      emailController.text,
-      passwordController.text,
-    );
-    if (user != null) {
-      // Fetch the user's role from Firestore
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+    try {
+      User? user = await _authService.signInWithEmail(
+        emailController.text.trim(),
+        passwordController.text.trim(),
+      );
 
-      if (userDoc.exists) {
-        String role = userDoc['role']; // Get the role
+      if (user != null) {
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
 
-        // Check the role and navigate accordingly
-        if (role == 'admin') {
-          Navigator.pushReplacementNamed(context, '/admin');
-        } else if (role == 'user') {
-          Navigator.pushReplacementNamed(context, '/user');
+        if (!mounted) return;
+
+        if (userDoc.exists) {
+          String role = userDoc['role'].toString().toLowerCase();
+
+          if (role == 'admin') {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => AdminScreen()),
+            );
+          } else if (role == 'user') {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => UserScreen()),
+            );
+          } else {
+            _showDialog("Error", "❌ Invalid role found.");
+          }
         } else {
-          _showDialog("Error", "❌ Invalid role found.");
+          _showDialog("Error", "❌ User data not found.");
         }
       } else {
-        _showDialog("Error", "❌ User data not found.");
+        if (!mounted) return;
+        _showDialog("Error", "❌ Sign-in failed, Email or password is wrong.");
       }
-    } else {
-      _showDialog("Error", "❌ Sign-in failed, Email or password is wrong");
+    } catch (e) {
+      if (!mounted) return;
+      _showDialog("Error", "❌ ${e.toString()}");
     }
   }
 
   void _signOut() async {
     await _authService.signOut();
+    if (!mounted) return;
     _showDialog("Success", "👋 User signed out");
   }
 
@@ -184,68 +204,70 @@ class _AuthScreenState extends State<AuthScreen> {
       body: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TextField(
-                controller: emailController,
-                decoration: const InputDecoration(
-                  labelText: "Email",
-                  prefixIcon: Icon(Icons.email),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: "Password",
-                  prefixIcon: Icon(Icons.lock),
-                ),
-              ),
-              if (isSignUp) ...[
-                const SizedBox(height: 16),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
                 TextField(
-                  controller: phoneController,
+                  controller: emailController,
                   decoration: const InputDecoration(
-                    labelText: "Phone Number",
-                    prefixIcon: Icon(Icons.phone),
+                    labelText: "Email",
+                    prefixIcon: Icon(Icons.email),
                   ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
-                  controller: roleController,
+                  controller: passwordController,
+                  obscureText: true,
                   decoration: const InputDecoration(
-                    labelText: "Role",
-                    prefixIcon: Icon(Icons.person),
+                    labelText: "Password",
+                    prefixIcon: Icon(Icons.lock),
                   ),
                 ),
-              ],
-              const SizedBox(height: 30),
-              ElevatedButton(
-                onPressed: isSignUp ? _signUp : _signIn,
-                child: Text(isSignUp ? "Sign Up" : "Sign In"),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    isSignUp = !isSignUp; // Toggle between sign-up and sign-in
-                  });
-                },
-                child: Text(
-                  isSignUp
-                      ? "Already have an account? Sign In"
-                      : "Don't have an account? Sign Up",
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (!isSignUp)
+                if (isSignUp) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: phoneController,
+                    decoration: const InputDecoration(
+                      labelText: "Phone Number",
+                      prefixIcon: Icon(Icons.phone),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: roleController,
+                    decoration: const InputDecoration(
+                      labelText: "Role (admin/user)",
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 30),
                 ElevatedButton(
-                  onPressed: _signOut,
-                  child: const Text("Sign Out"),
+                  onPressed: isSignUp ? _signUp : _signIn,
+                  child: Text(isSignUp ? "Sign Up" : "Sign In"),
                 ),
-            ],
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      isSignUp = !isSignUp;
+                    });
+                  },
+                  child: Text(
+                    isSignUp
+                        ? "Already have an account? Sign In"
+                        : "Don't have an account? Sign Up",
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (!isSignUp)
+                  ElevatedButton(
+                    onPressed: _signOut,
+                    child: const Text("Sign Out"),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
