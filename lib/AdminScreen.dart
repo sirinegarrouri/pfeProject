@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
 import 'UserDetailsScreen.dart';
 
 class AdminScreen extends StatefulWidget {
@@ -107,6 +108,20 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  // 🔵 Logout functionality
+  void _logout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      // Navigate to Login Screen (replace this with your actual login screen)
+      Navigator.of(context).pushReplacementNamed('/login'); // Or use MaterialPageRoute
+    } catch (e) {
+      print("Error logging out: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to log out")),
+      );
+    }
+  }
+
   Widget _buildDrawer() {
     return Drawer(
       child: Container(
@@ -138,7 +153,9 @@ class _AdminScreenState extends State<AdminScreen> {
             ),
             _buildDrawerItem(Icons.list, "Users List", () {}),
             _buildDrawerItem(Icons.settings, "Settings", () {}),
-            _buildDrawerItem(Icons.logout, "Logout", () {}),
+            _buildDrawerItem(Icons.logout, "Logout", () {
+              _logout(); // 👉 Calls logout function
+            }),
           ],
         ),
       ),

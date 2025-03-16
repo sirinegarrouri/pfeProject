@@ -11,7 +11,6 @@ class _UserScreenState extends State<UserScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool isDarkMode = false;
-  String? userName;
   String? userEmail;
   String? userPhone;
   String? userRole;
@@ -26,10 +25,12 @@ class _UserScreenState extends State<UserScreen> {
       var userDoc = await _firestore.collection('users').doc(user.uid).get(); // Use UID to fetch user data from Firestore
       if (userDoc.exists) {
         setState(() {
-          userName = userDoc['name'];
+          // Set the user data
           userEmail = user.email;
           userPhone = userDoc['phone'];
           userRole = userDoc['role'];
+
+          // Update controllers
           _emailController.text = userDoc['email'] ?? '';
           _phoneController.text = userDoc['phone'] ?? '';
           _roleController.text = userDoc['role'] ?? '';
@@ -82,25 +83,43 @@ class _UserScreenState extends State<UserScreen> {
             TextFormField(
               controller: _emailController,
               decoration: InputDecoration(
-                labelText: 'email',
+                labelText: 'Email',
+                labelStyle: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+                hintText: 'Enter your email',
+                hintStyle: TextStyle(color: isDarkMode ? Colors.grey[400] : Colors.grey[600]),
+                filled: true,
+                fillColor: isDarkMode ? Colors.grey[800] : Colors.grey[200],
                 border: OutlineInputBorder(),
               ),
+              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
             ),
             SizedBox(height: 10),
             TextFormField(
               controller: _phoneController,
               decoration: InputDecoration(
                 labelText: 'Phone',
+                labelStyle: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+                hintText: 'Enter your phone number',
+                hintStyle: TextStyle(color: isDarkMode ? Colors.grey[400] : Colors.grey[600]),
+                filled: true,
+                fillColor: isDarkMode ? Colors.grey[800] : Colors.grey[200],
                 border: OutlineInputBorder(),
               ),
+              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
             ),
             SizedBox(height: 10),
             TextFormField(
               controller: _roleController,
               decoration: InputDecoration(
                 labelText: 'Role',
+                labelStyle: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+                hintText: 'Enter your role',
+                hintStyle: TextStyle(color: isDarkMode ? Colors.grey[400] : Colors.grey[600]),
+                filled: true,
+                fillColor: isDarkMode ? Colors.grey[800] : Colors.grey[200],
                 border: OutlineInputBorder(),
               ),
+              style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
             ),
             SizedBox(height: 20),
             ElevatedButton(
@@ -176,7 +195,7 @@ class _UserScreenState extends State<UserScreen> {
       drawer: _buildDrawer(),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
-        child: userName == null
+        child: userEmail == null // Check for userEmail instead of userName
             ? const Center(child: CircularProgressIndicator())
             : _buildUserInfoForm(),
       ),

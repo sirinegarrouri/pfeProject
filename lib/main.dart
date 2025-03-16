@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'auth_service.dart';
 import 'firebase_options.dart';
 import 'profile_screen.dart';
@@ -41,6 +42,11 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: AuthScreen(),
+      routes: {
+        '/login': (context) => AuthScreen(),
+        '/admin': (context) => AdminScreen(),
+        '/user': (context) => UserScreen(),
+      },
     );
   }
 }
@@ -57,7 +63,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController roleController = TextEditingController();
 
-  bool isSignUp = false; // Permet de basculer entre Sign In et Sign Up
+  bool isSignUp = false;
 
   void _showDialog(String title, String message) {
     showDialog(
@@ -79,6 +85,16 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  // Get the FCM token and save it to Firestore
+  Future<void> _saveFcmToken(User user) async {
+    String? fcmToken = await FirebaseMessaging.instance.getToken();
+    if (fcmToken != null) {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'fcmToken': fcmToken, // Save the FCM token in Firestore
+      });
+    }
+  }
+
   void _signUp() async {
     User? user = await _authService.signUpWithEmail(
       emailController.text,
@@ -92,6 +108,9 @@ class _AuthScreenState extends State<AuthScreen> {
         'role': roleController.text,
       });
 
+      // Save the FCM token
+      await _saveFcmToken(user);
+
       // Fetch the user's role from Firestore
       DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection('users')
@@ -103,15 +122,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
         // Check the role and navigate accordingly
         if (role == 'admin') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => AdminScreen()), // Redirect to Admin screen
-          );
+          Navigator.pushReplacementNamed(context, '/admin');
         } else if (role == 'user') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => UserScreen()), // Redirect to User screen
-          );
+          Navigator.pushReplacementNamed(context, '/user');
         } else {
           _showDialog("Error", "❌ Invalid role found.");
         }
@@ -124,7 +137,6 @@ class _AuthScreenState extends State<AuthScreen> {
       _showDialog("Error", "❌ Sign-up failed");
     }
   }
-
 
   void _signIn() async {
     User? user = await _authService.signInWithEmail(
@@ -143,15 +155,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
         // Check the role and navigate accordingly
         if (role == 'admin') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => AdminScreen()), // Redirect admin
-          );
+          Navigator.pushReplacementNamed(context, '/admin');
         } else if (role == 'user') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => UserScreen()), // Redirect regular user
-          );
+          Navigator.pushReplacementNamed(context, '/user');
         } else {
           _showDialog("Error", "❌ Invalid role found.");
         }
@@ -162,7 +168,6 @@ class _AuthScreenState extends State<AuthScreen> {
       _showDialog("Error", "❌ Sign-in failed, Email or password is wrong");
     }
   }
-
 
   void _signOut() async {
     await _authService.signOut();
@@ -225,7 +230,7 @@ class _AuthScreenState extends State<AuthScreen> {
               TextButton(
                 onPressed: () {
                   setState(() {
-                    isSignUp = !isSignUp; // Change de formulaire
+                    isSignUp = !isSignUp; // Toggle between sign-up and sign-in
                   });
                 },
                 child: Text(
