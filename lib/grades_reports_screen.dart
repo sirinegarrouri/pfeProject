@@ -14,37 +14,39 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Grades Reports'),
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: theme.colorScheme.primary, // dynamic!
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            _buildFilters(),   // 🔎 Filter dropdowns
+            _buildFilters(theme),
             const SizedBox(height: 16),
-            Expanded(child: _buildGradesList()),  // 📋 List of grades
-            _buildAddGradeButton(),   // ➕ Add grade button
+            Expanded(child: _buildGradesList(theme, isDarkMode)),
+            _buildAddGradeButton(theme),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildFilters() {
+  Widget _buildFilters(ThemeData theme) {
     return Row(
       children: [
-        Expanded(child: _subjectDropdown()),
+        Expanded(child: _subjectDropdown(theme)),
         const SizedBox(width: 10),
-        Expanded(child: _studentDropdown()),
+        Expanded(child: _studentDropdown(theme)),
       ],
     );
   }
 
-  // 🔽 Dropdown for Subjects
-  Widget _subjectDropdown() {
+  Widget _subjectDropdown(ThemeData theme) {
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore.collection('subjects').snapshots(),
       builder: (context, snapshot) {
@@ -52,9 +54,16 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
 
         var subjects = snapshot.data!.docs;
 
-        return DropdownButton<String>(
+        return DropdownButtonFormField<String>(
           value: selectedSubjectId,
-          hint: const Text("Select Subject"),
+          decoration: InputDecoration(
+            labelText: "Select Subject",
+            labelStyle: TextStyle(color: theme.textTheme.bodyLarge!.color),
+            filled: true,
+            fillColor: theme.cardColor,
+            border: const OutlineInputBorder(),
+          ),
+          dropdownColor: theme.cardColor,
           onChanged: (value) {
             setState(() {
               selectedSubjectId = value;
@@ -63,7 +72,7 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
           items: subjects.map((doc) {
             return DropdownMenuItem(
               value: doc.id,
-              child: Text(doc['name']),
+              child: Text(doc['name'], style: theme.textTheme.bodyLarge),
             );
           }).toList(),
         );
@@ -71,8 +80,7 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
     );
   }
 
-  // 🔽 Dropdown for Students
-  Widget _studentDropdown() {
+  Widget _studentDropdown(ThemeData theme) {
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore.collection('users').snapshots(),
       builder: (context, snapshot) {
@@ -80,9 +88,16 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
 
         var students = snapshot.data!.docs;
 
-        return DropdownButton<String>(
+        return DropdownButtonFormField<String>(
           value: selectedStudentId,
-          hint: const Text("Select Student"),
+          decoration: InputDecoration(
+            labelText: "Select Student",
+            labelStyle: TextStyle(color: theme.textTheme.bodyLarge!.color),
+            filled: true,
+            fillColor: theme.cardColor,
+            border: const OutlineInputBorder(),
+          ),
+          dropdownColor: theme.cardColor,
           onChanged: (value) {
             setState(() {
               selectedStudentId = value;
@@ -91,7 +106,7 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
           items: students.map((doc) {
             return DropdownMenuItem(
               value: doc.id,
-              child: Text(doc['email']),
+              child: Text(doc['email'], style: theme.textTheme.bodyLarge),
             );
           }).toList(),
         );
@@ -99,8 +114,7 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
     );
   }
 
-  // 📋 List of Grades
-  Widget _buildGradesList() {
+  Widget _buildGradesList(ThemeData theme, bool isDarkMode) {
     Query query = _firestore.collection('grades');
 
     if (selectedSubjectId != null) {
@@ -116,7 +130,7 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
         if (snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text("No grades found"));
+          return Center(child: Text("No grades found", style: theme.textTheme.bodyLarge));
         }
 
         return ListView(
@@ -127,9 +141,11 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
             var subjectId = doc['subjectId'];
 
             return Card(
+              color: theme.cardColor,
+              elevation: 4,
               margin: const EdgeInsets.symmetric(vertical: 8),
               child: ListTile(
-                title: Text('Grade: $grade'),
+                title: Text('Grade: $grade', style: theme.textTheme.titleMedium),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -137,29 +153,29 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
                       future: _firestore.collection('subjects').doc(subjectId).get(),
                       builder: (context, subjectSnap) {
                         if (!subjectSnap.hasData) return const Text("Loading subject...");
-                        return Text("Subject: ${subjectSnap.data!['name']}");
+                        return Text("Subject: ${subjectSnap.data!['name']}", style: theme.textTheme.bodyLarge);
                       },
                     ),
                     FutureBuilder<DocumentSnapshot>(
                       future: _firestore.collection('users').doc(studentId).get(),
                       builder: (context, studentSnap) {
                         if (!studentSnap.hasData) return const Text("Loading student...");
-                        return Text("Student: ${studentSnap.data!['email']}");
+                        return Text("Student: ${studentSnap.data!['email']}", style: theme.textTheme.bodyLarge);
                       },
                     ),
-                    Text("Remarks: $remarks"),
+                    Text("Remarks: $remarks", style: theme.textTheme.bodyLarge),
                   ],
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.edit, color: Colors.orange),
-                      onPressed: () => _editGradeDialog(doc.id, grade, remarks),
+                      icon: Icon(Icons.edit, color: theme.colorScheme.secondary),
+                      onPressed: () => _editGradeDialog(doc.id, grade, remarks, theme),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteGrade(doc.id),
+                      icon: Icon(Icons.delete, color: Colors.redAccent),
+                      onPressed: () => _deleteGrade(doc.id, theme),
                     ),
                   ],
                 ),
@@ -171,30 +187,33 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
     );
   }
 
-  // ➕ Add Grade Button
-  Widget _buildAddGradeButton() {
+  Widget _buildAddGradeButton(ThemeData theme) {
     return ElevatedButton.icon(
-      onPressed: () => _addGradeDialog(),
+      onPressed: () => _addGradeDialog(theme),
       icon: const Icon(Icons.add),
       label: const Text("Add Grade"),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: theme.colorScheme.onPrimary,
+      ),
     );
   }
 
-  // ➕ Add Grade Dialog
-  void _addGradeDialog() {
-    String? selectedStudent;
-    String? selectedSubject;
+  void _addGradeDialog(ThemeData theme) {
     double? gradeValue;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: theme.dialogBackgroundColor,
         title: const Text("Add Grade"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _subjectDropdown(),
-            _studentDropdown(),
+            _subjectDropdown(theme),
+            const SizedBox(height: 10),
+            _studentDropdown(theme),
+            const SizedBox(height: 10),
             TextField(
               decoration: const InputDecoration(labelText: "Grade"),
               keyboardType: TextInputType.number,
@@ -203,7 +222,10 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
           ElevatedButton(
             onPressed: () async {
               if (selectedSubjectId == null || selectedStudentId == null || gradeValue == null) return;
@@ -223,13 +245,13 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
     );
   }
 
-  // ✏️ Edit Grade Dialog
-  void _editGradeDialog(String docId, double currentGrade, String remarks) {
+  void _editGradeDialog(String docId, double currentGrade, String remarks, ThemeData theme) {
     double? updatedGrade = currentGrade;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: theme.dialogBackgroundColor,
         title: const Text("Edit Grade"),
         content: TextField(
           decoration: const InputDecoration(labelText: "Grade"),
@@ -256,11 +278,11 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
     );
   }
 
-  // ❌ Delete Grade
-  void _deleteGrade(String docId) {
+  void _deleteGrade(String docId, ThemeData theme) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: theme.dialogBackgroundColor,
         title: const Text("Delete Grade"),
         content: const Text("Are you sure you want to delete this grade?"),
         actions: [
@@ -270,7 +292,8 @@ class _GradesReportsScreenState extends State<GradesReportsScreen> {
               await _firestore.collection('grades').doc(docId).delete();
               Navigator.pop(context);
             },
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Delete"),
           ),
         ],
       ),
