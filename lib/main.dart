@@ -83,6 +83,30 @@ class _AuthScreenState extends State<AuthScreen> {
       },
     );
   }
+  void _initFirebaseMessaging() async {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+    // Get the token
+    String? token = await messaging.getToken();
+
+    if (token != null) {
+      print('🔥 Device FCM Token: $token');
+
+      // Show it in a popup dialog (optional)
+      _showDialog("Device FCM Token", token);
+    }
+
+    // Listen for token refresh (optional)
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      print('🔄 Token refreshed: $newToken');
+    });
+  }
+  @override
+  void initState() {
+    super.initState();
+
+    _initFirebaseMessaging();  // ➡️ Get FCM token when screen loads
+  }
 
   // Get the FCM token and save it to Firestore
   Future<void> _saveFcmToken(User user) async {
@@ -94,99 +118,115 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+
+  // SIGN UP
   // SIGN UP
   // SIGN UP
   void _signUp() async {
+    String email = emailController.text.trim();
+    String password = passwordController.text.trim();
+    String phone = phoneController.text.trim();
+    String role = roleController.text.trim().toLowerCase();
+
+    if (email.isEmpty || password.isEmpty || phone.isEmpty || role.isEmpty) {
+      _showDialog("Error", "❌ All fields are required for sign up.");
+      return;
+    }
+
+    if (role != 'admin' && role != 'user') {
+      _showDialog("Error", "❌ Please enter a valid role (admin/user).");
+      return;
+    }
+
     try {
-      User? user = await _authService.signUpWithEmail(
-        emailController.text.trim(),
-        passwordController.text.trim(),
-      );
+      User? user = await _authService.signUpWithEmail(email, password);
 
-      if (user != null) {
-        String role = roleController.text.trim().toLowerCase();
-
-        if (role.isEmpty || (role != 'admin' && role != 'user')) {
-          if (!mounted) return;
-          _showDialog("Error", "❌ Please enter a valid role (admin/user)");
-          return;
-        }
-
-        // Save to Firestore
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'email': emailController.text.trim(),
-          'phone': phoneController.text.trim(),
-          'role': role,
-        });
-
-        // Save FCM token
-        await _saveFcmToken(user);
-
-        print('✅ Role is $role, navigating...');
-
-        if (!mounted) return;
-
-        // Navigate based on role
-        if (role == 'admin') {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => AdminScreen()),
-          );
-        } else if (role == 'user') {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => UserScreen()),
-          );
-        }
-      } else {
-        if (!mounted) return;
-        _showDialog("Error", "❌ Sign-up failed.");
+      if (user == null) {
+        _showDialog("Error", "❌ Sign-up failed. Please try again.");
+        return;
       }
+
+      // Save user info to Firestore
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'email': email,
+        'phone': phone,
+        'role': role,
+      });
+
+      // Save FCM token
+      await _saveFcmToken(user);
+
+      print('✅ User signed up with role: $role');
+
+      if (!mounted) return;
+
+      // Navigate to respective screen
+      _navigateBasedOnRole(role);
     } catch (e) {
+      print('❌ Sign-up error: $e');
       if (!mounted) return;
       _showDialog("Error", "❌ ${e.toString()}");
     }
   }
-  // SIGN IN
+
+// SIGN IN
   void _signIn() async {
+    String email = emailController.text.trim();
+    String password = passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      _showDialog("Error", "❌ Email and password are required.");
+      return;
+    }
+
     try {
-      User? user = await _authService.signInWithEmail(
-        emailController.text.trim(),
-        passwordController.text.trim(),
-      );
+      User? user = await _authService.signInWithEmail(email, password);
 
-      if (user != null) {
-        DocumentSnapshot userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-
-        if (!mounted) return;
-
-        if (userDoc.exists) {
-          String role = userDoc['role'].toString().toLowerCase();
-
-          if (role == 'admin') {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => AdminScreen()),
-            );
-          } else if (role == 'user') {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => UserScreen()),
-            );
-          } else {
-            _showDialog("Error", "❌ Invalid role found.");
-          }
-        } else {
-          _showDialog("Error", "❌ User data not found.");
-        }
-      } else {
-        if (!mounted) return;
-        _showDialog("Error", "❌ Sign-in failed, Email or password is wrong.");
+      if (user == null) {
+        _showDialog("Error", "❌ Sign-in failed. Email or password is incorrect.");
+        return;
       }
+
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (!userDoc.exists) {
+        _showDialog("Error", "❌ User data not found in the database.");
+        return;
+      }
+
+      String role = userDoc.get('role').toString().toLowerCase();
+
+      print('✅ Signed in as $role');
+
+      if (!mounted) return;
+
+      // Navigate to respective screen
+      _navigateBasedOnRole(role);
     } catch (e) {
+      print('❌ Sign-in error: $e');
       if (!mounted) return;
       _showDialog("Error", "❌ ${e.toString()}");
     }
   }
+
+// Navigate based on role
+  void _navigateBasedOnRole(String role) {
+    if (role == 'admin') {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => AdminScreen()),
+      );
+    } else if (role == 'user') {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => UserScreen()),
+      );
+    } else {
+      _showDialog("Error", "❌ Invalid role. Contact support.");
+    }
+  }
+
 
   void _signOut() async {
     await _authService.signOut();

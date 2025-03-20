@@ -1,9 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // For nice date formatting
 import 'UserDetailsScreen.dart';
-import 'grades_reports_screen.dart'; // Grades Report Screen
+import 'grades_reports_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   @override
@@ -13,12 +12,12 @@ class AdminScreen extends StatefulWidget {
 class _AdminScreenState extends State<AdminScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _notificationController = TextEditingController();
 
   bool isDarkMode = false;
   int _selectedPage = 0;
   String _searchQuery = '';
 
-  // Variables for the alert section
   bool _showAlert = false;
   String _alertMessage = '';
 
@@ -41,20 +40,24 @@ class _AdminScreenState extends State<AdminScreen> {
         ],
       ),
       drawer: _buildDrawer(),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: _selectedPage == 0
-            ? _buildBlankPage()
-            : _selectedPage == 1
-            ? _buildUsersPage()
-            : _selectedPage == 2
-            ? GradesReportsScreen()
-            : Container(),
+      body: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: _selectedPage == 0
+                ? _buildBlankPage()
+                : _selectedPage == 1
+                ? _buildUsersPage()
+                : _selectedPage == 2
+                ? GradesReportsScreen()
+                : Container(),
+          ),
+          _buildAlertSection(), // Optional floating alert banner
+        ],
       ),
       floatingActionButton: _selectedPage == 1
           ? FloatingActionButton(
         onPressed: () {
-          // Future: Navigate to Add User Page
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("Add user functionality coming soon!")),
           );
@@ -66,36 +69,7 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  // Widget for alert section (floating banner)
-  Widget _buildAlertSection() {
-    return Visibility(
-      visible: _showAlert, // Show or hide based on the state
-      child: Container(
-        color: Colors.redAccent,
-        padding: EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              _alertMessage,
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            IconButton(
-              icon: Icon(Icons.close, color: Colors.white),
-              onPressed: () {
-                setState(() {
-                  _showAlert = false;
-                });
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Function to show the alert
-
+  // Drawer
   Widget _buildDrawer() {
     return Drawer(
       child: Container(
@@ -143,6 +117,7 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  // Home Page
   Widget _buildBlankPage() {
     return Center(
       child: Column(
@@ -159,11 +134,25 @@ class _AdminScreenState extends State<AdminScreen> {
             "Select an option from the drawer to get started.",
             style: TextStyle(fontSize: 16, color: isDarkMode ? Colors.white70 : Colors.black87),
           ),
+          SizedBox(height: 30),
+          ElevatedButton.icon(
+            icon: Icon(Icons.notifications_active),
+            label: Text("Send Notification"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            onPressed: () {
+              _showNotificationDialog();
+            },
+          ),
         ],
       ),
     );
   }
 
+  // Users List Page
   Widget _buildUsersPage() {
     return Column(
       children: [
@@ -200,6 +189,7 @@ class _AdminScreenState extends State<AdminScreen> {
               if (snapshot.hasError) {
                 return Center(child: Text("Error loading users"));
               }
+
               var users = snapshot.data!.docs.where((doc) {
                 var data = doc.data() as Map<String, dynamic>;
                 String email = (data['email'] ?? '').toString().toLowerCase();
@@ -238,8 +228,10 @@ class _AdminScreenState extends State<AdminScreen> {
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text("📞 ${user['phone'] ?? 'No Phone'}", style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
-                          Text("🔹 Role: ${user['role'] ?? 'Unknown'}", style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
+                          Text("📞 ${user['phone'] ?? 'No Phone'}",
+                              style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
+                          Text("🔹 Role: ${user['role'] ?? 'Unknown'}",
+                              style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
                         ],
                       ),
                       trailing: Row(
@@ -250,14 +242,16 @@ class _AdminScreenState extends State<AdminScreen> {
                             onPressed: () {
                               Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (context) => UserDetailsScreen(userId: userId)),
+                                MaterialPageRoute(
+                                  builder: (context) => UserDetailsScreen(userId: userId),
+                                ),
                               );
                             },
                           ),
                           IconButton(
-                            icon: Icon(Icons.delete, color: Colors.red),
+                            icon: Icon(Icons.delete, color: Colors.redAccent),
                             onPressed: () {
-                              _confirmDelete(context, userId);
+                              _confirmDeleteUser(userId);
                             },
                           ),
                         ],
@@ -273,25 +267,31 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  void _confirmDelete(BuildContext context, String userId) {
+  // Send Notification Dialog
+  void _showNotificationDialog() {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (context) {
         return AlertDialog(
-          title: Text("Confirm Deletion"),
-          content: Text("Are you sure you want to delete this user?"),
+          title: Text('Send Notification'),
+          content: TextField(
+            controller: _notificationController,
+            decoration: InputDecoration(hintText: "Enter your message..."),
+            maxLines: 3,
+          ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () async {
-                await _firestore.collection('users').doc(userId).delete();
+              onPressed: () {
+                _notificationController.clear();
                 Navigator.of(context).pop();
-                _showAlert;  // Show alert section
               },
-              child: Text("Delete", style: TextStyle(color: Colors.red)),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _sendNotification();
+              },
+              child: Text('Send'),
             ),
           ],
         );
@@ -299,23 +299,124 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  Future<void> _sendNotification() async {
+    final message = _notificationController.text.trim();
+
+    if (message.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Notification message cannot be empty!')),
+      );
+      return;
+    }
+
+    try {
+      await _firestore.collection('notifications').add({
+        'message': message,
+        'timestamp': FieldValue.serverTimestamp(),
+        'sender': FirebaseAuth.instance.currentUser?.email ?? "Admin",
+      });
+
+      _notificationController.clear();
+      Navigator.of(context).pop();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Notification sent successfully!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sending notification: $e')),
+      );
+    }
+  }
+
+  // Confirm Delete User
+  void _confirmDeleteUser(String userId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete User'),
+        content: Text('Are you sure you want to delete this user?'),
+        actions: [
+          TextButton(
+            child: Text('Cancel'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          ElevatedButton(
+            child: Text('Delete'),
+            onPressed: () {
+              _deleteUser(userId);
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteUser(String userId) async {
+    try {
+      await _firestore.collection('users').doc(userId).delete();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('User deleted successfully!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting user: $e')),
+      );
+    }
+  }
+
+  // Optional Alert Banner (if needed)
+  Widget _buildAlertSection() {
+    return Visibility(
+      visible: _showAlert,
+      child: Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: Container(
+          color: Colors.redAccent,
+          padding: EdgeInsets.all(16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  _alertMessage,
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close, color: Colors.white),
+                onPressed: () {
+                  setState(() => _showAlert = false);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _confirmLogout() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("Logout"),
-        content: Text("Are you sure you want to log out?"),
+        title: Text('Logout'),
+        content: Text('Are you sure you want to logout?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text("Cancel"),
+            child: Text('Cancel'),
+            onPressed: () => Navigator.pop(context),
           ),
-          TextButton(
+          ElevatedButton(
+            child: Text('Logout'),
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-              Navigator.of(context).pushReplacementNamed('/login');
+              Navigator.of(context).popUntil((route) => route.isFirst);
             },
-            child: Text("Logout", style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
