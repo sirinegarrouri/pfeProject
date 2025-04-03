@@ -1,8 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'UserDetailsScreen.dart';
-import 'grades_reports_screen.dart';
+import 'package:intl/intl.dart';
 
 class AdminScreen extends StatefulWidget {
   @override
@@ -11,415 +10,409 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final TextEditingController _searchController = TextEditingController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   final TextEditingController _notificationController = TextEditingController();
-
-  bool isDarkMode = false;
-  int _selectedPage = 0;
-  String _searchQuery = '';
-
-  bool _showAlert = false;
-  String _alertMessage = '';
+  bool _isDarkMode = false;
+  bool _isSending = false;
+  bool _isLoadingUsers = false;
+  String? _selectedUserId;
+  List<Map<String, dynamic>> _users = [];
+  String? _errorMessage;
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: isDarkMode ? Colors.black : Colors.grey[200],
-      appBar: AppBar(
-        title: Text("Admin Panel"),
-        backgroundColor: Colors.blueAccent,
-        actions: [
-          IconButton(
-            icon: Icon(isDarkMode ? Icons.wb_sunny : Icons.nightlight_round),
-            onPressed: () {
-              setState(() {
-                isDarkMode = !isDarkMode;
-              });
-            },
-          ),
-        ],
-      ),
-      drawer: _buildDrawer(),
-      body: Stack(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: _selectedPage == 0
-                ? _buildBlankPage()
-                : _selectedPage == 1
-                ? _buildUsersPage()
-                : _selectedPage == 2
-                ? GradesReportsScreen()
-                : Container(),
-          ),
-          _buildAlertSection(), // Optional floating alert banner
-        ],
-      ),
-      floatingActionButton: _selectedPage == 1
-          ? FloatingActionButton(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Add user functionality coming soon!")),
-          );
-        },
-        child: Icon(Icons.add),
-        backgroundColor: Colors.blueAccent,
-      )
-          : null,
-    );
+  void initState() {
+    super.initState();
+    _verifyAdminStatus();
   }
 
-  // Drawer
-  Widget _buildDrawer() {
-    return Drawer(
-      child: Container(
-        color: isDarkMode ? Colors.grey[900] : Colors.white,
-        child: Column(
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [Colors.blueAccent, Colors.lightBlue]),
-              ),
-              accountName: Text("Admin", style: TextStyle(fontSize: 18)),
-              accountEmail: Text(FirebaseAuth.instance.currentUser?.email ?? ""),
-              currentAccountPicture: CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Icon(Icons.admin_panel_settings, color: Colors.blueAccent, size: 40),
-              ),
-            ),
-            _buildDrawerItem(Icons.home, "Home", () {
-              setState(() => _selectedPage = 0);
-              Navigator.pop(context);
-            }),
-            _buildDrawerItem(Icons.list, "Users List", () {
-              setState(() => _selectedPage = 1);
-              Navigator.pop(context);
-            }),
-            _buildDrawerItem(Icons.grade, "Grades Report", () {
-              setState(() => _selectedPage = 2);
-              Navigator.pop(context);
-            }),
-            Divider(),
-            _buildDrawerItem(Icons.logout, "Logout", () {
-              _confirmLogout();
-            }),
-          ],
-        ),
-      ),
-    );
+  Future<void> _verifyAdminStatus() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        _navigateToLogin();
+        return;
+      }
+
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      if (!doc.exists || doc.data()?['role'] != 'admin') {
+        setState(() => _errorMessage = 'Admin access required');
+        await _auth.signOut();
+        _navigateToLogin();
+        return;
+      }
+
+      await _loadUsers();
+    } on FirebaseException catch (e) {
+      setState(() => _errorMessage = 'Error verifying admin status: ${e.message}');
+    } catch (e) {
+      setState(() => _errorMessage = 'Unexpected error: ${e.toString()}');
+    }
   }
 
-  Widget _buildDrawerItem(IconData icon, String title, VoidCallback onTap) {
-    return ListTile(
-      leading: Icon(icon, color: isDarkMode ? Colors.white70 : Colors.black),
-      title: Text(title, style: TextStyle(color: isDarkMode ? Colors.white : Colors.black)),
-      onTap: onTap,
-    );
+  void _navigateToLogin() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Navigator.pushReplacementNamed(context, '/login');
+    });
   }
 
-  // Home Page
-  Widget _buildBlankPage() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.admin_panel_settings, size: 100, color: Colors.blueAccent),
-          SizedBox(height: 20),
-          Text(
-            "Welcome, Admin!",
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: isDarkMode ? Colors.white : Colors.black),
-          ),
-          SizedBox(height: 10),
-          Text(
-            "Select an option from the drawer to get started.",
-            style: TextStyle(fontSize: 16, color: isDarkMode ? Colors.white70 : Colors.black87),
-          ),
-          SizedBox(height: 30),
-          ElevatedButton.icon(
-            icon: Icon(Icons.notifications_active),
-            label: Text("Send Notification"),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-              textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            onPressed: () {
-              _showNotificationDialog();
-            },
-          ),
-        ],
-      ),
-    );
-  }
+  Future<void> _loadUsers() async {
+    setState(() {
+      _isLoadingUsers = true;
+      _errorMessage = null;
+    });
 
-  // Users List Page
-  Widget _buildUsersPage() {
-    return Column(
-      children: [
-        TextField(
-          controller: _searchController,
-          decoration: InputDecoration(
-            hintText: 'Search by email...',
-            prefixIcon: Icon(Icons.search),
-            suffixIcon: _searchQuery.isNotEmpty
-                ? IconButton(
-              icon: Icon(Icons.clear),
-              onPressed: () {
-                _searchController.clear();
-                setState(() => _searchQuery = '');
-              },
-            )
-                : null,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          onChanged: (value) {
-            setState(() {
-              _searchQuery = value.toLowerCase();
-            });
-          },
-        ),
-        SizedBox(height: 10),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('users').snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(child: Text("Error loading users"));
-              }
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
 
-              var users = snapshot.data!.docs.where((doc) {
-                var data = doc.data() as Map<String, dynamic>;
-                String email = (data['email'] ?? '').toString().toLowerCase();
-                return email.contains(_searchQuery);
-              }).toList();
+      final snapshot = await _firestore.collection('users').get();
 
-              if (users.isEmpty) {
-                return Center(child: Text("No users found"));
-              }
+      if (snapshot.size == 0) {
+        throw Exception('No users found');
+      }
 
-              return ListView.builder(
-                itemCount: users.length,
-                itemBuilder: (context, index) {
-                  var user = users[index].data() as Map<String, dynamic>;
-                  var userId = users[index].id;
-
-                  return Card(
-                    margin: EdgeInsets.symmetric(vertical: 8, horizontal: 15),
-                    elevation: 6,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    color: isDarkMode ? Colors.grey[900] : Colors.white,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.all(15),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.blueAccent,
-                        child: Icon(Icons.person, color: Colors.white),
-                      ),
-                      title: Text(
-                        user['email'] ?? "No Email",
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: isDarkMode ? Colors.white : Colors.black,
-                        ),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("📞 ${user['phone'] ?? 'No Phone'}",
-                              style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
-                          Text("🔹 Role: ${user['role'] ?? 'Unknown'}",
-                              style: TextStyle(fontSize: 14, color: isDarkMode ? Colors.white70 : Colors.black87)),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(Icons.edit, color: Colors.orange),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => UserDetailsScreen(userId: userId),
-                                ),
-                              );
-                            },
-                          ),
-                          IconButton(
-                            icon: Icon(Icons.delete, color: Colors.redAccent),
-                            onPressed: () {
-                              _confirmDeleteUser(userId);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Send Notification Dialog
-  void _showNotificationDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Send Notification'),
-          content: TextField(
-            controller: _notificationController,
-            decoration: InputDecoration(hintText: "Enter your message..."),
-            maxLines: 3,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                _notificationController.clear();
-                Navigator.of(context).pop();
-              },
-              child: Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                _sendNotification();
-              },
-              child: Text('Send'),
-            ),
-          ],
-        );
-      },
-    );
+      setState(() {
+        _users = snapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'email': data['email'] ?? 'No email',
+            'role': data['role'] ?? 'No role',
+            'name': data['name'] ?? 'No name',
+          };
+        }).toList();
+      });
+    } on FirebaseException catch (e) {
+      setState(() => _errorMessage = 'Firestore error: ${e.message ?? e.code}');
+    } catch (e) {
+      setState(() => _errorMessage = 'Error loading users: ${e.toString()}');
+    } finally {
+      setState(() => _isLoadingUsers = false);
+    }
   }
 
   Future<void> _sendNotification() async {
-    final message = _notificationController.text.trim();
-
-    if (message.isEmpty) {
+    if (_notificationController.text.isEmpty || _selectedUserId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Notification message cannot be empty!')),
+        const SnackBar(content: Text('Please select a user and enter a message')),
       );
       return;
     }
 
+    setState(() => _isSending = true);
+
     try {
       await _firestore.collection('notifications').add({
-        'message': message,
+        'message': _notificationController.text,
         'timestamp': FieldValue.serverTimestamp(),
-        'sender': FirebaseAuth.instance.currentUser?.email ?? "Admin",
+        'read': false,
+        'userId': _selectedUserId,
+        'senderId': _auth.currentUser?.uid,
+        'senderRole': 'admin',
       });
 
-      _notificationController.clear();
-      Navigator.of(context).pop();
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Notification sent successfully!')),
+        const SnackBar(content: Text('Notification sent successfully')),
+      );
+
+      _notificationController.clear();
+      setState(() => _selectedUserId = null);
+    } on FirebaseException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Firestore error: ${e.message ?? e.code}')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sending notification: $e')),
+        SnackBar(content: Text('Failed to send: ${e.toString()}')),
       );
+    } finally {
+      setState(() => _isSending = false);
     }
   }
 
-  // Confirm Delete User
-  void _confirmDeleteUser(String userId) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete User'),
-        content: Text('Are you sure you want to delete this user?'),
-        actions: [
-          TextButton(
-            child: Text('Cancel'),
-            onPressed: () => Navigator.pop(context),
-          ),
+  Widget _buildUserDropdown() {
+    if (_isLoadingUsers) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Column(
+        children: [
+          Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+          const SizedBox(height: 10),
           ElevatedButton(
-            child: Text('Delete'),
-            onPressed: () {
-              _deleteUser(userId);
-              Navigator.pop(context);
-            },
+            onPressed: _loadUsers,
+            child: const Text('Retry'),
           ),
         ],
+      );
+    }
+
+    if (_users.isEmpty) {
+      return const Column(
+        children: [
+          Text('No users available', style: TextStyle(color: Colors.grey)),
+          SizedBox(height: 10),
+        ],
+      );
+    }
+
+    return DropdownButtonFormField<String>(
+      value: _selectedUserId,
+      decoration: InputDecoration(
+        labelText: 'Select User',
+        border: const OutlineInputBorder(),
+        filled: true,
+        fillColor: _isDarkMode ? Colors.grey[800] : Colors.grey[200],
       ),
+      items: _users.map((user) {
+        return DropdownMenuItem<String>(
+          value: user['id'],
+          child: Text('${user['name']} (${user['email']})'),
+        );
+      }).toList(),
+      onChanged: (value) => setState(() => _selectedUserId = value),
+      validator: (value) => value == null ? 'Please select a user' : null,
     );
   }
 
-  Future<void> _deleteUser(String userId) async {
-    try {
-      await _firestore.collection('users').doc(userId).delete();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('User deleted successfully!')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error deleting user: $e')),
-      );
-    }
-  }
-
-  // Optional Alert Banner (if needed)
-  Widget _buildAlertSection() {
-    return Visibility(
-      visible: _showAlert,
-      child: Positioned(
-        top: 0,
-        left: 0,
-        right: 0,
-        child: Container(
-          color: Colors.redAccent,
-          padding: EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  _alertMessage,
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                ),
+  Widget _buildNotificationForm() {
+    return Card(
+      elevation: 4,
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Send Notification',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: _isDarkMode ? Colors.white : Colors.black,
               ),
-              IconButton(
-                icon: Icon(Icons.close, color: Colors.white),
-                onPressed: () {
-                  setState(() => _showAlert = false);
-                },
+            ),
+            const SizedBox(height: 16),
+            _buildUserDropdown(),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _notificationController,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: 'Message',
+                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: _isDarkMode ? Colors.grey[800] : Colors.grey[200],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _isSending ? null : _sendNotification,
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              child: _isSending
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Send Notification'),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  void _confirmLogout() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Logout'),
-        content: Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            child: Text('Cancel'),
-            onPressed: () => Navigator.pop(context),
-          ),
-          ElevatedButton(
-            child: Text('Logout'),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.of(context).popUntil((route) => route.isFirst);
+  Widget _buildRecentNotifications() {
+    return Expanded(
+      child: StreamBuilder<QuerySnapshot>(
+        stream: _firestore
+            .collection('notifications')
+            .orderBy('timestamp', descending: true)
+            .limit(10)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error: ${snapshot.error}',
+                style: const TextStyle(color: Colors.red),
+              ),
+            );
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text(
+                'No notifications sent yet',
+                style: TextStyle(color: Colors.grey),
+              ),
+            );
+          }
+
+          return ListView.builder(
+            itemCount: snapshot.data!.docs.length,
+            itemBuilder: (context, index) {
+              final doc = snapshot.data!.docs[index];
+              final data = doc.data() as Map<String, dynamic>;
+              final timestamp = data['timestamp'] as Timestamp?;
+              final date = timestamp != null
+                  ? DateFormat('MMM d, y - h:mm a').format(timestamp.toDate())
+                  : 'Unknown date';
+
+              final user = _users.firstWhere(
+                    (u) => u['id'] == data['userId'],
+                orElse: () => {'name': 'Unknown', 'email': ''},
+              );
+
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                child: ListTile(
+                  leading: Icon(
+                    data['read'] == true ? Icons.mark_email_read : Icons.mark_email_unread,
+                    color: data['read'] == true ? Colors.green : Colors.blue,
+                  ),
+                  title: Text(data['message'] ?? 'No message'),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('To: ${user['name']} (${user['email']})'),
+                      Text(date),
+                    ],
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () => _deleteNotification(doc.id),
+                  ),
+                ),
+              );
             },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _deleteNotification(String id) async {
+    try {
+      await _firestore.collection('notifications').doc(id).delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Notification deleted')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete: ${e.toString()}')),
+      );
+    }
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      child: Container(
+        color: _isDarkMode ? Colors.grey[900] : Colors.white,
+        child: Column(
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.blueAccent, Colors.lightBlue],
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.admin_panel_settings, color: Colors.white, size: 50),
+                  const SizedBox(width: 10),
+                  const Text('Admin Panel', style: TextStyle(color: Colors.white, fontSize: 24)),
+                  const Spacer(),
+                  Switch(
+                    value: _isDarkMode,
+                    onChanged: (value) => setState(() => _isDarkMode = value),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: Icon(Icons.people, color: _isDarkMode ? Colors.white70 : Colors.black),
+              title: Text('User Management', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
+              onTap: () {},
+            ),
+            ListTile(
+              leading: Icon(Icons.notifications, color: _isDarkMode ? Colors.white70 : Colors.black),
+              title: Text('Notifications', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
+              onTap: () {},
+            ),
+            const Divider(),
+            ListTile(
+              leading: Icon(Icons.logout, color: _isDarkMode ? Colors.white70 : Colors.black),
+              title: Text('Logout', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
+              onTap: () async {
+                await _auth.signOut();
+                Navigator.pushReplacementNamed(context, '/login');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_errorMessage == 'Admin access required') {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Admin access required', style: TextStyle(fontSize: 20)),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+                child: const Text('Go to Login'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Admin Dashboard'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadUsers,
           ),
         ],
       ),
+      drawer: _buildDrawer(),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            _buildNotificationForm(),
+            const SizedBox(height: 16),
+            Text(
+              'Recent Notifications',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: _isDarkMode ? Colors.white : Colors.black,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildRecentNotifications(),
+          ],
+        ),
+      ),
     );
+  }
+
+  @override
+  void dispose() {
+    _notificationController.dispose();
+    super.dispose();
   }
 }
