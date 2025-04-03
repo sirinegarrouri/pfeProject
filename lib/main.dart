@@ -8,21 +8,18 @@ import 'firebase_options.dart'; // Import the FirebaseOptions class for your pla
 import 'AdminScreen.dart';
 import 'UserScreen.dart';
 import 'LoginScreen.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform, // Automatically choose platform-specific options
-    );
-    print("✅ Firebase initialized successfully");
-  } catch (e) {
-    print("❌ Firebase initialization error: $e");
-  }
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
-  // Initialize Firebase Messaging
-  FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundMessageHandler);
+  // Add these settings to prevent internal errors
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
 
   runApp(MyApp());
 }

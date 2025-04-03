@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-
 class UserScreen extends StatefulWidget {
   @override
   _UserScreenState createState() => _UserScreenState();
@@ -11,145 +10,45 @@ class UserScreen extends StatefulWidget {
 class _UserScreenState extends State<UserScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  bool _isLoading = false;
+  bool _isLoading = true;
+  List<DocumentSnapshot> _notifications = [];
+  String? _error;
 
-  Future<void> _refreshNotifications() async {
-    setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    setState(() => _isLoading = false);
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
   }
 
-  Widget _buildAuthRequired() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.login, size: 48, color: Colors.blue),
-          const SizedBox(height: 16),
-          const Text('Authentication required'),
-          const SizedBox(height: 8),
-          const Text('Please sign in to view notifications'),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: () => Navigator.pushNamed(context, '/login'),
-            child: const Text('Sign In'),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<void> _loadNotifications() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
 
-  Widget _buildLoadingIndicator() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text('Loading notifications...'),
-        ],
-      ),
-    );
-  }
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) return;
 
-  Widget _buildErrorState(dynamic error) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.error_outline, size: 48, color: Colors.red),
-          const SizedBox(height: 16),
-          const Text('Couldn\'t load notifications'),
-          const SizedBox(height: 8),
-          Text(
-            _getErrorText(error),
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _refreshNotifications,
-            child: const Text('Try Again'),
-          ),
-        ],
-      ),
-    );
-  }
+      final query = _firestore
+          .collection('notifications')
+          .where('userId', isEqualTo: userId)
+          .orderBy('timestamp', descending: true);
 
-  Widget _buildEmptyState() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.notifications_off, size: 48, color: Colors.grey),
-          SizedBox(height: 16),
-          Text('No notifications yet'),
-          SizedBox(height: 8),
-          Text('You\'ll see notifications here when they arrive'),
-        ],
-      ),
-    );
-  }
+      // Use get() instead of snapshots() as a workaround
+      final snapshot = await query.get();
 
-  Stream<QuerySnapshot> _getNotificationStream() {
-    return _firestore
-        .collection('notifications')
-        .where('userId', isEqualTo: _auth.currentUser!.uid)
-        .orderBy('timestamp', descending: true)
-        .snapshots();
-  }
-
-  Widget _buildNotificationList(List<QueryDocumentSnapshot> docs) {
-    return ListView.builder(
-      itemCount: docs.length,
-      itemBuilder: (context, index) {
-        final doc = docs[index];
-        final data = doc.data() as Map<String, dynamic>;
-        final notification = NotificationModel(
-          id: doc.id,
-          message: data['message'] ?? '',
-          read: data['read'] ?? false,
-          timestamp: data['timestamp'] ?? Timestamp.now(),
-          userId: data['userId'] ?? '',
-        );
-
-        final formattedDate = DateFormat('MMM d, y • h:mm a')
-            .format(notification.timestamp.toDate());
-
-        return Dismissible(
-          key: Key(notification.id),
-          background: Container(color: Colors.red),
-          confirmDismiss: (direction) async {
-            await _markAsRead(notification.id);
-            return false;
-          },
-          child: Card(
-            margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: notification.read ? Colors.grey : Colors.blue,
-                child: Icon(
-                  notification.read ? Icons.notifications_none : Icons.notifications,
-                  color: Colors.white,
-                ),
-              ),
-              title: Text(
-                notification.message,
-                style: TextStyle(
-                  fontWeight: notification.read ? FontWeight.normal : FontWeight.bold,
-                ),
-              ),
-              subtitle: Text(formattedDate),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _deleteNotification(notification.id),
-              ),
-              onTap: () => _markAsRead(notification.id),
-            ),
-          ),
-        );
-      },
-    );
+      setState(() {
+        _notifications = snapshot.docs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+      print('Error loading notifications: $e');
+    }
   }
 
   Future<void> _markAsRead(String notificationId) async {
@@ -158,63 +57,106 @@ class _UserScreenState extends State<UserScreen> {
         'read': true,
         'readAt': FieldValue.serverTimestamp(),
       });
+      await _loadNotifications(); // Refresh the list
     } catch (e) {
       print('Error marking as read: $e');
     }
   }
 
+  Widget _buildNotificationItem(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final message = data['message'] ?? 'No message';
+    final isRead = data['read'] ?? false;
+    final timestamp = data['timestamp'] as Timestamp?;
+    final date = timestamp != null
+        ? DateFormat('MMM d, y h:mm a').format(timestamp.toDate())
+        : 'Unknown date';
+
+    return Card(
+      margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: ListTile(
+        leading: Icon(
+          isRead ? Icons.mark_email_read : Icons.mark_email_unread,
+          color: isRead ? Colors.grey : Colors.blue,
+        ),
+        title: Text(
+          message,
+          style: TextStyle(
+            fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(date),
+        trailing: IconButton(
+          icon: Icon(Icons.delete, color: Colors.red),
+          onPressed: () => _deleteNotification(doc.id),
+        ),
+        onTap: () => _markAsRead(doc.id),
+      ),
+    );
+  }
+
   Future<void> _deleteNotification(String notificationId) async {
     try {
       await _firestore.collection('notifications').doc(notificationId).delete();
+      await _loadNotifications(); // Refresh the list
     } catch (e) {
       print('Error deleting notification: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to delete notification')),
+        SnackBar(content: Text('Failed to delete notification')),
       );
     }
   }
 
-  String _getErrorText(dynamic error) {
-    if (error is FirebaseException) {
-      switch (error.code) {
-        case 'resource-exhausted':
-          return 'Too many requests. Please wait.';
-        case 'permission-denied':
-          return 'You don\'t have permission to view notifications';
-        case 'unavailable':
-          return 'Network unavailable. Check your connection';
-        default:
-          return 'Please try again later';
-      }
-    }
-    return 'An unexpected error occurred';
-  }
-
-  Widget _buildNotificationContent() {
-    if (_auth.currentUser == null) {
-      return _buildAuthRequired();
+  Widget _buildBody() {
+    if (_isLoading) {
+      return Center(child: CircularProgressIndicator());
     }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: _getNotificationStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return _buildLoadingIndicator();
-        }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error, color: Colors.red, size: 48),
+            SizedBox(height: 16),
+            Text('Error loading notifications'),
+            SizedBox(height: 8),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+            SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadNotifications,
+              child: Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
 
-        if (snapshot.hasError) {
-          return _buildErrorState(snapshot.error);
-        }
+    if (_notifications.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.notifications_off, size: 48, color: Colors.grey),
+            SizedBox(height: 16),
+            Text('No notifications yet'),
+          ],
+        ),
+      );
+    }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _buildEmptyState();
-        }
-
-        return RefreshIndicator(
-          onRefresh: _refreshNotifications,
-          child: _buildNotificationList(snapshot.data!.docs),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: _loadNotifications,
+      child: ListView.builder(
+        itemCount: _notifications.length,
+        itemBuilder: (context, index) {
+          return _buildNotificationItem(_notifications[index]);
+        },
+      ),
     );
   }
 
@@ -222,31 +164,15 @@ class _UserScreenState extends State<UserScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Text('Notifications'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _refreshNotifications,
+            icon: Icon(Icons.refresh),
+            onPressed: _loadNotifications,
           ),
         ],
       ),
-      body: _buildNotificationContent(),
+      body: _buildBody(),
     );
   }
-}
-
-class NotificationModel {
-  final String id;
-  final String message;
-  final bool read;
-  final Timestamp timestamp;
-  final String userId;
-
-  NotificationModel({
-    required this.id,
-    required this.message,
-    required this.read,
-    required this.timestamp,
-    required this.userId,
-  });
 }
