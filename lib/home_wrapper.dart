@@ -55,7 +55,7 @@ class _HomeWrapperState extends State<HomeWrapper> {
   @override
   Widget build(BuildContext context) {
     if (widget.role == 'admin') {
-      return AdminScreen();
+      return AdminDashboard();
     } else {
       return UserScreen();
     }

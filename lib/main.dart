@@ -168,7 +168,7 @@ class _AuthCheckerState extends State<AuthChecker> {
             print("✅ User role from Firestore: $role");
 
             if (role == 'admin') {
-              return AdminScreen();
+              return AdminDashboard();
             } else if (role == 'user') {
               return UserScreen();
             } else {

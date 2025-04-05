@@ -1,95 +1,147 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-class AdminScreen extends StatefulWidget {
+class AdminDashboard extends StatefulWidget {
   @override
-  _AdminScreenState createState() => _AdminScreenState();
+  _AdminDashboardState createState() => _AdminDashboardState();
 }
 
-class _AdminScreenState extends State<AdminScreen> {
+class NotificationStats {
+  final String day;
+  final int count;
+  final Color color;
+
+  NotificationStats({
+    required this.day,
+    required this.count,
+    this.color = Colors.blue,
+  });
+}
+
+class _AdminDashboardState extends State<AdminDashboard> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final TextEditingController _notificationController = TextEditingController();
-  bool _isDarkMode = false;
+
+  bool _isLoading = true;
   bool _isSending = false;
-  bool _isLoadingUsers = false;
   String? _selectedUserId;
+
   List<Map<String, dynamic>> _users = [];
-  String? _errorMessage;
+  List<NotificationStats> _weeklyStats = [];
+
+  int _totalNotifications = 0;
+  int _readNotifications = 0;
+  int _totalUsers = 0;
 
   @override
   void initState() {
     super.initState();
-    _verifyAdminStatus();
+    _loadData();
   }
 
-  Future<void> _verifyAdminStatus() async {
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
     try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        _navigateToLogin();
-        return;
-      }
-
-      final doc = await _firestore.collection('users').doc(user.uid).get();
-      if (!doc.exists || doc.data()?['role'] != 'admin') {
-        setState(() => _errorMessage = 'Admin access required');
-        await _auth.signOut();
-        _navigateToLogin();
-        return;
-      }
-
-      await _loadUsers();
-    } on FirebaseException catch (e) {
-      setState(() => _errorMessage = 'Error verifying admin status: ${e.message}');
+      await Future.wait([
+        _loadNotificationStats(),
+        _loadUsers(),
+      ]);
     } catch (e) {
-      setState(() => _errorMessage = 'Unexpected error: ${e.toString()}');
+      print('Error loading data: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load data: ${e.toString()}')),
+      );
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
-  void _navigateToLogin() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Navigator.pushReplacementNamed(context, '/login');
-    });
+  Future<void> _loadNotificationStats() async {
+    try {
+      // Get total notifications count
+      final totalQuery = await _firestore.collection('notifications').count().get();
+      setState(() => _totalNotifications = totalQuery.count!);
+
+      // Get read notifications count
+      final readQuery = await _firestore.collection('notifications')
+          .where('read', isEqualTo: true)
+          .count()
+          .get();
+      setState(() => _readNotifications = readQuery.count!);
+
+      // Get weekly stats
+      final now = DateTime.now();
+      final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+      final snapshot = await _firestore.collection('notifications')
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfWeek))
+          .get();
+
+      // Group by day of week
+      final dailyCounts = <int, int>{};
+      for (var i = 0; i < 7; i++) {
+        dailyCounts[i] = 0;
+      }
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final timestamp = data['timestamp'] as Timestamp?;
+        if (timestamp != null) {
+          final date = timestamp.toDate();
+          final dayOfWeek = date.weekday - 1; // 0-6 where 0 is Monday
+          dailyCounts[dayOfWeek] = (dailyCounts[dayOfWeek] ?? 0) + 1;
+        }
+      }
+
+      final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      setState(() {
+        _weeklyStats = dailyCounts.entries.map((entry) {
+          return NotificationStats(
+            day: weekdays[entry.key],
+            count: entry.value,
+            color: _getColorForDay(entry.key),
+          );
+        }).toList();
+      });
+    } catch (e) {
+      print('Error loading notification stats: $e');
+      throw e;
+    }
+  }
+
+  Color _getColorForDay(int dayIndex) {
+    final colors = [
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.red,
+      Colors.purple,
+      Colors.teal,
+      Colors.indigo,
+    ];
+    return colors[dayIndex % colors.length];
   }
 
   Future<void> _loadUsers() async {
-    setState(() {
-      _isLoadingUsers = true;
-      _errorMessage = null;
-    });
-
     try {
-      final currentUser = _auth.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated');
-      }
-
       final snapshot = await _firestore.collection('users').get();
-
-      if (snapshot.size == 0) {
-        throw Exception('No users found');
-      }
-
       setState(() {
         _users = snapshot.docs.map((doc) {
           final data = doc.data();
           return {
             'id': doc.id,
             'email': data['email'] ?? 'No email',
-            'role': data['role'] ?? 'No role',
             'name': data['name'] ?? 'No name',
           };
         }).toList();
+        _totalUsers = _users.length;
       });
-    } on FirebaseException catch (e) {
-      setState(() => _errorMessage = 'Firestore error: ${e.message ?? e.code}');
     } catch (e) {
-      setState(() => _errorMessage = 'Error loading users: ${e.toString()}');
-    } finally {
-      setState(() => _isLoadingUsers = false);
+      print('Error loading users: $e');
+      throw e;
     }
   }
 
@@ -118,11 +170,7 @@ class _AdminScreenState extends State<AdminScreen> {
       );
 
       _notificationController.clear();
-      setState(() => _selectedUserId = null);
-    } on FirebaseException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Firestore error: ${e.message ?? e.code}')),
-      );
+      await _loadNotificationStats(); // Refresh stats
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to send: ${e.toString()}')),
@@ -132,89 +180,188 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
-  Widget _buildUserDropdown() {
-    if (_isLoadingUsers) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_errorMessage != null) {
-      return Column(
-        children: [
-          Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-          const SizedBox(height: 10),
-          ElevatedButton(
-            onPressed: _loadUsers,
-            child: const Text('Retry'),
-          ),
-        ],
-      );
-    }
-
-    if (_users.isEmpty) {
-      return const Column(
-        children: [
-          Text('No users available', style: TextStyle(color: Colors.grey)),
-          SizedBox(height: 10),
-        ],
-      );
-    }
-
-    return DropdownButtonFormField<String>(
-      value: _selectedUserId,
-      decoration: InputDecoration(
-        labelText: 'Select User',
-        border: const OutlineInputBorder(),
-        filled: true,
-        fillColor: _isDarkMode ? Colors.grey[800] : Colors.grey[200],
+  Widget _buildStatsCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 30, color: color),
+            SizedBox(height: 8),
+            Text(title, style: TextStyle(color: Colors.grey, fontSize: 12)),
+            SizedBox(height: 4),
+            Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ],
+        ),
       ),
-      items: _users.map((user) {
-        return DropdownMenuItem<String>(
-          value: user['id'],
-          child: Text('${user['name']} (${user['email']})'),
-        );
-      }).toList(),
-      onChanged: (value) => setState(() => _selectedUserId = value),
-      validator: (value) => value == null ? 'Please select a user' : null,
+    );
+  }
+
+  Widget _buildNotificationChart() {
+    if (_weeklyStats.isEmpty) {
+      return Center(child: Text('No notification data available'));
+    }
+
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Notifications This Week',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                Spacer(),
+                IconButton(
+                  icon: Icon(Icons.refresh, size: 20),
+                  onPressed: _loadNotificationStats,
+                ),
+              ],
+            ),
+            SizedBox(height: 16),
+            SizedBox(
+              height: 200,
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: _weeklyStats.map((e) => e.count.toDouble()).reduce((a, b) => a > b ? a : b) * 1.2,
+                  barGroups: _weeklyStats.map((stats) {
+                    return BarChartGroupData(
+                      x: _weeklyStats.indexOf(stats),
+                      barRods: [
+                        BarChartRodData(
+                          toY: stats.count.toDouble(),
+                          color: stats.color,
+                          width: 16,
+                          borderRadius: BorderRadius.circular(4),
+                          backDrawRodData: BackgroundBarChartRodData(
+                            show: true,
+                            toY: _weeklyStats.map((e) => e.count.toDouble()).reduce((a, b) => a > b ? a : b) * 1.2,
+                            color: Colors.grey[200],
+                          ),
+                        ),
+                      ],
+                      showingTooltipIndicators: [0],
+                    );
+                  }).toList(),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              _weeklyStats[value.toInt()].day,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.black,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 1,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            value.toInt().toString(),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.black,
+                            ),
+                          );
+                        },
+                        reservedSize: 28,
+                      ),
+                    ),
+                    rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    horizontalInterval: 1,
+                    getDrawingHorizontalLine: (value) => FlLine(
+                      color: Colors.grey[300],
+                      strokeWidth: 1,
+                    ),
+                  ),
+                  borderData: FlBorderData(
+                    show: true,
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey, width: 1),
+                      left: BorderSide(color: Colors.grey, width: 1),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildNotificationForm() {
     return Card(
-      elevation: 4,
-      margin: const EdgeInsets.symmetric(vertical: 16),
+      elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Send Notification',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: _isDarkMode ? Colors.white : Colors.black,
-              ),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 16),
-            _buildUserDropdown(),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _selectedUserId,
+              decoration: InputDecoration(
+                labelText: 'Select User',
+                border: OutlineInputBorder(),
+              ),
+              items: _users.map((user) {
+                return DropdownMenuItem<String>(
+                  value: user['id'],
+                  child: Text('${user['name']} (${user['email']})'),
+                );
+              }).toList(),
+              onChanged: (value) => setState(() => _selectedUserId = value),
+            ),
+            SizedBox(height: 16),
             TextField(
               controller: _notificationController,
               maxLines: 3,
               decoration: InputDecoration(
                 labelText: 'Message',
-                border: const OutlineInputBorder(),
-                filled: true,
-                fillColor: _isDarkMode ? Colors.grey[800] : Colors.grey[200],
+                border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _isSending ? null : _sendNotification,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+            SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isSending ? null : _sendNotification,
+                icon: Icon(Icons.send),
+                label: Text(_isSending ? 'Sending...' : 'Send Notification'),
+                style: ElevatedButton.styleFrom(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
               ),
-              child: _isSending
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('Send Notification'),
             ),
           ],
         ),
@@ -223,134 +370,84 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   Widget _buildRecentNotifications() {
-    return Expanded(
-      child: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('notifications')
-            .orderBy('timestamp', descending: true)
-            .limit(10)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red),
-              ),
-            );
-          }
-
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(
-              child: Text(
-                'No notifications sent yet',
-                style: TextStyle(color: Colors.grey),
-              ),
-            );
-          }
-
-          return ListView.builder(
-            itemCount: snapshot.data!.docs.length,
-            itemBuilder: (context, index) {
-              final doc = snapshot.data!.docs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              final timestamp = data['timestamp'] as Timestamp?;
-              final date = timestamp != null
-                  ? DateFormat('MMM d, y - h:mm a').format(timestamp.toDate())
-                  : 'Unknown date';
-
-              final user = _users.firstWhere(
-                    (u) => u['id'] == data['userId'],
-                orElse: () => {'name': 'Unknown', 'email': ''},
-              );
-
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                child: ListTile(
-                  leading: Icon(
-                    data['read'] == true ? Icons.mark_email_read : Icons.mark_email_unread,
-                    color: data['read'] == true ? Colors.green : Colors.blue,
-                  ),
-                  title: Text(data['message'] ?? 'No message'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('To: ${user['name']} (${user['email']})'),
-                      Text(date),
-                    ],
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deleteNotification(doc.id),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _deleteNotification(String id) async {
-    try {
-      await _firestore.collection('notifications').doc(id).delete();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Notification deleted')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to delete: ${e.toString()}')),
-      );
-    }
-  }
-
-  Widget _buildDrawer() {
-    return Drawer(
-      child: Container(
-        color: _isDarkMode ? Colors.grey[900] : Colors.white,
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.blueAccent, Colors.lightBlue],
+            Row(
+              children: [
+                Text(
+                  'Recent Notifications',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.admin_panel_settings, color: Colors.white, size: 50),
-                  const SizedBox(width: 10),
-                  const Text('Admin Panel', style: TextStyle(color: Colors.white, fontSize: 24)),
-                  const Spacer(),
-                  Switch(
-                    value: _isDarkMode,
-                    onChanged: (value) => setState(() => _isDarkMode = value),
-                  ),
-                ],
-              ),
+                Spacer(),
+                IconButton(
+                  icon: Icon(Icons.refresh),
+                  onPressed: _loadNotificationStats,
+                ),
+              ],
             ),
-            ListTile(
-              leading: Icon(Icons.people, color: _isDarkMode ? Colors.white70 : Colors.black),
-              title: Text('User Management', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: Icon(Icons.notifications, color: _isDarkMode ? Colors.white70 : Colors.black),
-              title: Text('Notifications', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-              onTap: () {},
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(Icons.logout, color: _isDarkMode ? Colors.white70 : Colors.black),
-              title: Text('Logout', style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black)),
-              onTap: () async {
-                await _auth.signOut();
-                Navigator.pushReplacementNamed(context, '/login');
+            SizedBox(height: 8),
+            StreamBuilder<QuerySnapshot>(
+              stream: _firestore
+                  .collection('notifications')
+                  .orderBy('timestamp', descending: true)
+                  .limit(5)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Text('Error: ${snapshot.error}');
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator());
+                }
+
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(child: Text('No notifications found'));
+                }
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = snapshot.data!.docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final timestamp = data['timestamp'] as Timestamp?;
+                    final date = timestamp != null
+                        ? DateFormat('MMM d, h:mm a').format(timestamp.toDate())
+                        : 'Unknown date';
+
+                    final user = _users.firstWhere(
+                          (u) => u['id'] == data['userId'],
+                      orElse: () => {'name': 'Unknown', 'email': ''},
+                    );
+
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.blue[100],
+                        child: Text(
+                          user['name'].isNotEmpty ? user['name'][0] : '?',
+                          style: TextStyle(color: Colors.blue),
+                        ),
+                      ),
+                      title: Text(data['message'] ?? 'No message'),
+                      subtitle: Text('To: ${user['name']} • $date'),
+                      trailing: Icon(
+                        data['read'] == true ? Icons.mark_email_read : Icons.mark_email_unread,
+                        color: data['read'] == true ? Colors.green : Colors.blue,
+                      ),
+                      onTap: () {
+                        // Add navigation to notification details if needed
+                      },
+                    );
+                  },
+                );
               },
             ),
           ],
@@ -361,18 +458,15 @@ class _AdminScreenState extends State<AdminScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_errorMessage == 'Admin access required') {
+    if (_isLoading) {
       return Scaffold(
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('Admin access required', style: TextStyle(fontSize: 20)),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
-                child: const Text('Go to Login'),
-              ),
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Loading Dashboard...'),
             ],
           ),
         ),
@@ -381,38 +475,57 @@ class _AdminScreenState extends State<AdminScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin Dashboard'),
+        title: Text('Admin Dashboard'),
+        centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadUsers,
+            icon: Icon(Icons.refresh),
+            onPressed: _loadData,
+            tooltip: 'Refresh Data',
           ),
         ],
       ),
-      drawer: _buildDrawer(),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            _buildNotificationForm(),
-            const SizedBox(height: 16),
-            Text(
-              'Recent Notifications',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: _isDarkMode ? Colors.white : Colors.black,
-              ),
+            // Stats Cards Row
+            GridView.count(
+              crossAxisCount: MediaQuery.of(context).size.width > 600 ? 3 : 2,
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              childAspectRatio: 1,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              children: [
+                _buildStatsCard('Total Users', _totalUsers.toString(), Icons.people, Colors.blue),
+                _buildStatsCard('Notifications', _totalNotifications.toString(), Icons.notifications, Colors.green),
+                if (MediaQuery.of(context).size.width > 600 || _totalNotifications == 0)
+                  _buildStatsCard(
+                      'Read',
+                      _totalNotifications > 0
+                          ? '${(_readNotifications/_totalNotifications*100).toStringAsFixed(0)}%'
+                          : '0%',
+                      Icons.mark_email_read,
+                      Colors.orange
+                  ),
+              ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 16),
+
+            // Notification Chart
+            _buildNotificationChart(),
+            SizedBox(height: 16),
+
+            // Notification Form
+            _buildNotificationForm(),
+            SizedBox(height: 16),
+
+            // Recent Notifications
             _buildRecentNotifications(),
           ],
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _notificationController.dispose();
-    super.dispose();
   }
 }

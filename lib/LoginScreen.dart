@@ -129,7 +129,7 @@ class _LoginScreenState extends State<LoginScreen> {
   // ---------------- NAVIGATE BASED ON ROLE ----------------
   Future<void> _navigateBasedOnRole(String role) async {
     if (role == 'admin') {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AdminScreen()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AdminDashboard()));
     } else {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => UserScreen()));
     }
