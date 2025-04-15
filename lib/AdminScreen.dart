@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'user_management_screen.dart';
+import 'settings_screen.dart';
 
 void main() {
   runApp(MaterialApp(
@@ -24,10 +26,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+
+// In your _AdminDashboardState class, update the screens list:
   final List<Widget> _screens = [
     DashboardScreen(),
     NotificationsScreen(),
-    UserManagementScreen(),
+    UserManagementScreen(), // Now using our separate implementation
     ReclamationScreen(),
     SettingsScreen(),
   ];
@@ -743,14 +747,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 }
 
 // User Management Screen
-class UserManagementScreen extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text('User Management Screen'),
-    );
-  }
-}
+
 
 // Reclamation Screen
 class ReclamationScreen extends StatelessWidget {
@@ -763,14 +760,7 @@ class ReclamationScreen extends StatelessWidget {
 }
 
 // Settings Screen
-class SettingsScreen extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text('Settings Screen'),
-    );
-  }
-}
+
 
 // Model classes
 class NotificationStats {
