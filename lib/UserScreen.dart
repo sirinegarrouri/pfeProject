@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'reclamation_screen.dart';
+
 class UserScreen extends StatefulWidget {
   @override
   _UserScreenState createState() => _UserScreenState();
@@ -34,8 +36,6 @@ class _UserScreenState extends State<UserScreen> {
           .collection('notifications')
           .where('userId', isEqualTo: userId)
           .orderBy('timestamp', descending: true);
-
-      // Use get() instead of snapshots() as a workaround
       final snapshot = await query.get();
 
       setState(() {
@@ -53,13 +53,26 @@ class _UserScreenState extends State<UserScreen> {
 
   Future<void> _markAsRead(String notificationId) async {
     try {
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) return;
+
+      final doc = await _firestore.collection('notifications').doc(notificationId).get();
+      if (!doc.exists || doc.data()?['userId'] != userId) {
+        print("Notification not found or access denied");
+        return;
+      }
+
       await _firestore.collection('notifications').doc(notificationId).update({
         'read': true,
         'readAt': FieldValue.serverTimestamp(),
       });
-      await _loadNotifications(); // Refresh the list
+
+      await _loadNotifications();
     } catch (e) {
       print('Error marking as read: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to mark as read')),
+      );
     }
   }
 
@@ -97,8 +110,17 @@ class _UserScreenState extends State<UserScreen> {
 
   Future<void> _deleteNotification(String notificationId) async {
     try {
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) return;
+
+      final doc = await _firestore.collection('notifications').doc(notificationId).get();
+      if (!doc.exists || doc.data()?['userId'] != userId) {
+        print("Notification doesn't exist or doesn't belong to user");
+        return;
+      }
+
       await _firestore.collection('notifications').doc(notificationId).delete();
-      await _loadNotifications(); // Refresh the list
+      await _loadNotifications();
     } catch (e) {
       print('Error deleting notification: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -160,6 +182,73 @@ class _UserScreenState extends State<UserScreen> {
     );
   }
 
+  void _navigateToReclamation() {
+    Navigator.pop(context); // Close the drawer
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => ReclamationScreen()),
+    );
+  }
+
+  void _navigateToAccountSettings() {
+    Navigator.pop(context); // Close the drawer
+    // Add your navigation logic to account settings screen here
+    // Navigator.push(context, MaterialPageRoute(builder: (context) => AccountSettingsScreen()));
+  }
+
+  // Build the drawer widget
+  Widget _buildDrawer() {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(
+              color: Colors.blue,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  child: Icon(Icons.person, size: 30),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'User Menu',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: Icon(Icons.report_problem),
+            title: Text('Reclamation'),
+            onTap: _navigateToReclamation,
+          ),
+          ListTile(
+            leading: Icon(Icons.settings),
+            title: Text('Account Settings'),
+            onTap: _navigateToAccountSettings,
+          ),
+          Divider(),
+          ListTile(
+            leading: Icon(Icons.exit_to_app),
+            title: Text('Sign Out'),
+            onTap: () async {
+              await _auth.signOut();
+              Navigator.pop(context); // Close the drawer
+              // You might want to navigate to login screen here
+            },
+          ),
+        ],
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -172,6 +261,7 @@ class _UserScreenState extends State<UserScreen> {
           ),
         ],
       ),
+      drawer: _buildDrawer(),
       body: _buildBody(),
     );
   }

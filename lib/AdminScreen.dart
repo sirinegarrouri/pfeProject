@@ -10,7 +10,7 @@ void main() {
   runApp(MaterialApp(
     title: 'Admin Dashboard',
     theme: ThemeData(
-      primarySwatch: Colors.blue,
+      primarySwatch: Colors.green,
       visualDensity: VisualDensity.adaptivePlatformDensity,
     ),
     home: AdminDashboard(),
@@ -26,12 +26,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-
-// In your _AdminDashboardState class, update the screens list:
   final List<Widget> _screens = [
     DashboardScreen(),
     NotificationsScreen(),
-    UserManagementScreen(), // Now using our separate implementation
+    UserManagementScreen(),
     ReclamationScreen(),
     SettingsScreen(),
   ];
@@ -58,9 +56,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             IconButton(
               icon: Icon(Icons.refresh),
               onPressed: () {
-                // Refresh current screen
                 if (_selectedIndex == 0) {
-                  // Example for dashboard refresh
                   (_screens[0] as DashboardScreen).refreshData();
                 }
               },
@@ -126,7 +122,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ),
                 ),
                 Text(
-                  'admin@example.com',
+                  'Welcome back',
                   style: TextStyle(
                     color: Colors.white70,
                     fontSize: 14,
@@ -147,7 +143,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             initiallyExpanded: _selectedIndex == 1,
             children: [
               ListTile(
-                leading: SizedBox(width: 20), // Indent for sub-item
+                leading: SizedBox(width: 20),
                 title: Text('Send Notification'),
                 selected: _selectedIndex == 1,
                 onTap: () => _onItemTapped(1),
@@ -200,8 +196,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 }
-
-// Dashboard Screen
 class DashboardScreen extends StatefulWidget {
   @override
   _DashboardScreenState createState() => _DashboardScreenState();
@@ -256,7 +250,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final timestamp = data['timestamp'] as Timestamp?;
         if (timestamp != null) {
           final date = timestamp.toDate();
-          final dayOfWeek = date.weekday - 1; // 0-6 where 0 is Monday
+          final dayOfWeek = date.weekday - 1;
           dailyCounts[dayOfWeek] = (dailyCounts[dayOfWeek] ?? 0) + 1;
         }
       }
@@ -335,7 +329,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             SizedBox(height: 16),
             SizedBox(
-              height: 200,
+              height: 400,
               child: BarChart(
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,
@@ -426,7 +420,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         children: [
           GridView.count(
-            crossAxisCount: MediaQuery.of(context).size.width > 600 ? 3 : 2,
+            crossAxisCount: MediaQuery.of(context).size.width > 200 ? 3 : 2,
             shrinkWrap: true,
             physics: NeverScrollableScrollPhysics(),
             childAspectRatio: 1,
@@ -445,22 +439,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-          SizedBox(height: 16),
+          SizedBox(height: 6),
           _buildNotificationChart(),
         ],
       ),
     );
   }
 }
-
-// Notifications Screen
 class NotificationsScreen extends StatefulWidget {
   @override
   _NotificationsScreenState createState() => _NotificationsScreenState();
 }
-
-// Update the _NotificationsScreenState class in the NotificationsScreen widget
-
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -745,11 +734,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 }
-
-// User Management Screen
-
-
-// Reclamation Screen
 class ReclamationScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -758,11 +742,6 @@ class ReclamationScreen extends StatelessWidget {
     );
   }
 }
-
-// Settings Screen
-
-
-// Model classes
 class NotificationStats {
   final String day;
   final int count;

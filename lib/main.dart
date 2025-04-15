@@ -14,8 +14,6 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  // Add these settings to prevent internal errors
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -25,7 +23,6 @@ void main() async {
 }
 
 Future<void> _firebaseBackgroundMessageHandler(RemoteMessage message) async {
-  // Handle background message
   print("🔔 Background message received: ${message.notification?.title}");
 }
 
@@ -97,7 +94,6 @@ class _AuthCheckerState extends State<AuthChecker> {
   }
 
   void _setupNotificationListeners() {
-    // Foreground message listener
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       if (message.notification != null) {
         print("🔔 Message received in foreground: ${message.notification!.title}");
