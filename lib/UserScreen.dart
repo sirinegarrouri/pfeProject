@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'reclamation_screen.dart';
-
+import 'account_settings_screen.dart';
 class UserScreen extends StatefulWidget {
   @override
   _UserScreenState createState() => _UserScreenState();
@@ -192,11 +192,11 @@ class _UserScreenState extends State<UserScreen> {
 
   void _navigateToAccountSettings() {
     Navigator.pop(context); // Close the drawer
-    // Add your navigation logic to account settings screen here
-    // Navigator.push(context, MaterialPageRoute(builder: (context) => AccountSettingsScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => AccountSettingsScreen()),
+    );
   }
-
-  // Build the drawer widget
   Widget _buildDrawer() {
     return Drawer(
       child: ListView(
@@ -242,7 +242,7 @@ class _UserScreenState extends State<UserScreen> {
             onTap: () async {
               await _auth.signOut();
               Navigator.pop(context); // Close the drawer
-              // You might want to navigate to login screen here
+
             },
           ),
         ],

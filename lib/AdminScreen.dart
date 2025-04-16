@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'user_management_screen.dart';
 import 'settings_screen.dart';
+import 'admin_reclamations_screen.dart';
 
 void main() {
   runApp(MaterialApp(
@@ -25,13 +26,14 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   final List<Widget> _screens = [
-    DashboardScreen(),
-    NotificationsScreen(),
-    UserManagementScreen(),
-    ReclamationScreen(),
-    SettingsScreen(),
+    DashboardScreen(),          // Index 0
+    NotificationsScreen(),      // Index 1
+    UserManagementScreen(),     // Index 2
+    AdminReclamationsScreen(),  // Index 3
+    SettingsScreen(),           // Index 4
+
   ];
 
   void _onItemTapped(int index) {
@@ -58,6 +60,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
               onPressed: () {
                 if (_selectedIndex == 0) {
                   (_screens[0] as DashboardScreen).refreshData();
+                } else if (_selectedIndex == 3) {
+                  // Add refresh functionality for reclamations screen
+                  (_screens[3] as AdminReclamationsScreen).refreshData();
                 }
               },
             ),
@@ -137,24 +142,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
             selected: _selectedIndex == 0,
             onTap: () => _onItemTapped(0),
           ),
-          ExpansionTile(
+          ListTile(
             leading: Icon(Icons.notifications),
             title: Text('Notifications'),
-            initiallyExpanded: _selectedIndex == 1,
-            children: [
-              ListTile(
-                leading: SizedBox(width: 20),
-                title: Text('Send Notification'),
-                selected: _selectedIndex == 1,
-                onTap: () => _onItemTapped(1),
-              ),
-              ListTile(
-                leading: SizedBox(width: 20),
-                title: Text('Notification List'),
-                selected: _selectedIndex == 1,
-                onTap: () => _onItemTapped(1),
-              ),
-            ],
+            selected: _selectedIndex == 1,
+            onTap: () => _onItemTapped(1),
           ),
           ListTile(
             leading: Icon(Icons.people),
@@ -165,20 +157,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ListTile(
             leading: Icon(Icons.report),
             title: Text('Reclamations'),
-            selected: _selectedIndex == 3,
+            selected: _selectedIndex == 3,  // Matches AdminReclamationsScreen index
             onTap: () => _onItemTapped(3),
           ),
           ListTile(
             leading: Icon(Icons.settings),
             title: Text('Settings'),
-            selected: _selectedIndex == 4,
+            selected: _selectedIndex == 4,  // Matches SettingsScreen index
             onTap: () => _onItemTapped(4),
-          ),
-          Divider(),
-          ListTile(
-            leading: Icon(Icons.logout),
-            title: Text('Logout'),
-            onTap: _logout,
           ),
         ],
       ),
@@ -196,6 +182,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 }
+
 class DashboardScreen extends StatefulWidget {
   @override
   _DashboardScreenState createState() => _DashboardScreenState();
@@ -446,10 +433,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
+
 class NotificationsScreen extends StatefulWidget {
   @override
   _NotificationsScreenState createState() => _NotificationsScreenState();
 }
+
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -637,7 +626,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: (_isSendingToAll || _users.isEmpty) ? null : _sendNotificationToAllUsers,
-                      icon: Icon(Icons.group), // Changed from Icons.send_to_all to Icons.group
+                      icon: Icon(Icons.group),
                       label: Text(_isSendingToAll
                           ? 'Sending to all $_totalUsers users...'
                           : 'Send to all $_totalUsers users'),
@@ -734,14 +723,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 }
-class ReclamationScreen extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text('Reclamation Screen'),
-    );
-  }
-}
+
 class NotificationStats {
   final String day;
   final int count;
