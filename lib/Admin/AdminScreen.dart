@@ -266,13 +266,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      // Fetch total notifications count
       final totalQuery = await _firestore.collection('notifications').count().get();
       final totalAlertsQuery = await _firestore.collection('alerts').count().get();
-      print('Total notifications count: ${totalQuery.count}');
-      print('Total alerts count: ${totalAlertsQuery.count}');
-
-      // Fetch read notifications count
       final readQuery = await _firestore
           .collection('notifications')
           .where('read', isEqualTo: true)
@@ -283,11 +278,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .where('read', isEqualTo: true)
           .count()
           .get();
-      // Fetch total users count
       final usersQuery = await _firestore.collection('users').count().get();
-
-
-      // Fetch notifications and alerts for weekly stats (last 30 days)
       final now = DateTime.now();
       final startOfPeriod = now.subtract(Duration(days: 30));
       final notificationsSnapshot = await _firestore
@@ -299,13 +290,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfPeriod))
           .get();
 
-
       final dailyCounts = <int, int>{};
       for (var i = 0; i < 7; i++) {
         dailyCounts[i] = 0;
       }
-
-      // Process notifications
       for (final doc in notificationsSnapshot.docs) {
         final data = doc.data();
         final timestamp = data['timestamp'] as Timestamp?;
@@ -313,13 +301,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final date = timestamp.toDate();
           final dayOfWeek = date.weekday - 1;
           dailyCounts[dayOfWeek] = (dailyCounts[dayOfWeek] ?? 0) + 1;
-
-        } else {
-
         }
       }
-
-      // Process alerts
       for (final doc in alertsSnapshot.docs) {
         final data = doc.data();
         final timestamp = data['timestamp'] as Timestamp?;
@@ -327,9 +310,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final date = timestamp.toDate();
           final dayOfWeek = date.weekday - 1;
           dailyCounts[dayOfWeek] = (dailyCounts[dayOfWeek] ?? 0) + 1;
-
-        } else {
-
         }
       }
 
@@ -566,6 +546,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _loadUsers();
   }
 
+  @override
+  void dispose() {
+    _notificationController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadUsers() async {
     try {
       final snapshot = await _firestore.collection('users').get();
@@ -613,7 +599,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       };
 
       final collection = _selectedCategory == 'Nothing' ? 'notifications' : 'alerts';
-      print('Sending to $collection: $notificationData');
       await _firestore.collection(collection).add(notificationData);
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -661,7 +646,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           i + batchSize > userIds.length ? userIds.length : i + batchSize,
         );
 
-        print('Preparing batch for ${subList.length} users in ${collection.path}');
         for (final userId in subList) {
           final docRef = collection.doc();
           batch.set(docRef, {
@@ -676,7 +660,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           });
         }
         await batch.commit();
-        print('Batch committed for ${subList.length} users');
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -712,11 +695,128 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  Stream<List<Map<String, dynamic>>> _getStreamForCategory(String category) {
+    final collection = category == 'Nothing' ? 'notifications' : 'alerts';
+    return _firestore
+        .collection(collection)
+        .where('category', isEqualTo: category)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'message': data['message'] as String? ?? 'No message',
+          'timestamp': (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          'read': data['read'] as bool? ?? false,
+          'userId': data['userId'] as String? ?? 'Unknown',
+          'category': data['category'] as String? ?? 'Nothing',
+          'isEmergency': data['isEmergency'] as bool? ?? (category != 'Nothing'),
+        };
+      }).toList();
+    });
+  }
+
+  Widget _buildNotificationItem(Map<String, dynamic> item, BuildContext context) {
+    final isEmergency = item['isEmergency'] as bool;
+    final category = item['category'] as String;
+    final color = _getCategoryColor(category);
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: color.withOpacity(0.1),
+              child: Icon(
+                isEmergency ? Icons.warning : Icons.notifications,
+                color: color,
+                size: 16,
+              ),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item['message'],
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: item['read'] ? Colors.black54 : Colors.black87,
+                      fontWeight: item['read'] ? FontWeight.normal : FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    DateFormat('MMM d, yyyy HH:mm').format(item['timestamp'] as DateTime),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              item['read'] ? Icons.mark_email_read : Icons.email,
+              color: item['read'] ? Colors.green : Colors.grey,
+              size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategorySection(String category, String title) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _getStreamForCategory(category),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          print('Error for $category: ${snapshot.error}');
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Text('Error loading $title', style: Theme.of(context).textTheme.bodyMedium),
+          );
+        }
+        final items = snapshot.data ?? [];
+        if (items.isEmpty) {
+          return SizedBox.shrink();
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            ...items.map((item) => _buildNotificationItem(item, context)).toList(),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       padding: EdgeInsets.all(12),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Card(
             child: Padding(
@@ -812,6 +912,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                     ),
                   ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Recent Notifications and Alerts',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  SizedBox(height: 8),
+                  _buildCategorySection('Fire', 'Fire Alerts'),
+                  _buildCategorySection('Earthquake', 'Earthquake Alerts'),
+                  _buildCategorySection('Tsunami', 'Tsunami Alerts'),
+                  _buildCategorySection('Nothing', 'General Notifications'),
                 ],
               ),
             ),
