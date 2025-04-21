@@ -387,7 +387,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }).toList(),
             onChanged: (value) {
               setState(() => _selectedLanguage = value);
-              // Implement language change logic
+
             },
           ),
           SizedBox(height: 24),

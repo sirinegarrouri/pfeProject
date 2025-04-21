@@ -48,7 +48,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
       _emailVerified = _user!.emailVerified;
 
-      // Load user profile data from Firestore
       final doc = await _firestore.collection('users').doc(_user!.uid).get();
       if (doc.exists) {
         final data = doc.data()!;
@@ -113,19 +112,14 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   Future<void> _updateEmail() async {
     if (_emailController.text.isEmpty) return;
     if (_emailController.text == _user!.email) return;
-
     try {
       setState(() {
         _isLoading = true;
         _error = null;
         _success = null;
       });
-
-      // Reauthenticate first
       await _reauthenticate();
-
       await _user!.verifyBeforeUpdateEmail(_emailController.text);
-
       setState(() {
         _success = 'Verification email sent to ${_emailController.text}. '
             'Please verify your new email address.';
@@ -142,19 +136,14 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
   Future<void> _updatePassword() async {
     if (_newPasswordController.text.isEmpty) return;
-
     try {
       setState(() {
         _isLoading = true;
         _error = null;
         _success = null;
       });
-
-      // Reauthenticate first
       await _reauthenticate();
-
       await _user!.updatePassword(_newPasswordController.text);
-
       setState(() {
         _success = 'Password updated successfully!';
         _isLoading = false;
@@ -229,17 +218,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         _isLoading = true;
         _error = null;
       });
-
-      // Reauthenticate first
       await _reauthenticate();
-
-      // Delete from Firestore
       await _firestore.collection('users').doc(_user!.uid).delete();
-
-      // Delete from Auth
       await _user!.delete();
-
-      // Navigate to login screen
       Navigator.pushNamedAndRemoveUntil(
           context, '/login', (route) => false);
 
@@ -344,7 +325,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       ),
     );
   }
-
   Widget _buildSecuritySection() {
     return Card(
       child: Padding(
@@ -506,7 +486,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
-
     if (_user == null) {
       return Scaffold(
         appBar: AppBar(title: Text('Account Settings')),

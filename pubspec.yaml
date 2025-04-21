@@ -41,7 +41,7 @@ dependencies:
   intl: ^0.20.2
   permission_handler: ^12.0.0+1
   fl_chart: ^0.70.2
-
+  rxdart: ^0.27.7
 
 
 dev_dependencies:

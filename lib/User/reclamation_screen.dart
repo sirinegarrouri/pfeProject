@@ -141,12 +141,8 @@ class _ReclamationScreenState extends State<ReclamationScreen> {
                   padding: EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
-              SizedBox(height: 16),
-              Text(
-                'Note: We will review your complaint and get back to you via email.',
-                style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
-                textAlign: TextAlign.center,
-              ),
+             SizedBox(height: 16),
+             
             ],
           ),
         ),

@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'AdminScreen.dart';
+import '../Admin/AdminScreen.dart';
 import 'UserScreen.dart';
 
 class LoginScreen extends StatefulWidget {

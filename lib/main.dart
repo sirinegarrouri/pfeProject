@@ -3,11 +3,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'firebase_options.dart'; // Import the FirebaseOptions class for your platform
+import 'Login/firebase_options.dart'; // Import the FirebaseOptions class for your platform
 
-import 'AdminScreen.dart';
-import 'UserScreen.dart';
-import 'LoginScreen.dart';
+import 'Admin/AdminScreen.dart';
+import 'User/UserScreen.dart';
+import 'User/LoginScreen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
