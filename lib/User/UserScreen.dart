@@ -14,9 +14,9 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isLoading = true;
-  List<DocumentSnapshot> _notifications = [];
-  List<DocumentSnapshot> _events = [];
-  List<DocumentSnapshot> _alerts = []; // New list for alerts
+  List<Map<String, dynamic>> _notifications = [];
+  List<Map<String, dynamic>> _events = [];
+  List<Map<String, dynamic>> _alerts = [];
   String? _error;
   String _searchQuery = '';
   int _selectedTabIndex = 0;
@@ -25,25 +25,29 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this); // Updated to 3 tabs
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
   }
 
   Future<void> _loadData() async {
+    if (_auth.currentUser == null) {
+      setState(() {
+        _error = 'User not authenticated';
+        _isLoading = false;
+      });
+      return;
+    }
+    setState(() => _isLoading = true);
     await Future.wait([
       _loadNotifications(),
       _loadEvents(),
-      _loadAlerts(), // New method for alerts
+      _loadAlerts(),
     ]);
+    setState(() => _isLoading = false);
   }
 
   Future<void> _loadNotifications() async {
     try {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-      });
-
       final userId = _auth.currentUser?.uid;
       if (userId == null) {
         setState(() {
@@ -53,35 +57,53 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         return;
       }
 
-      final query = _firestore
+      final snapshot = await _firestore
           .collection('notifications')
           .where('userId', isEqualTo: userId)
-          .orderBy('timestamp', descending: true);
-      final snapshot = await query.get();
+          .where('isEmergency', isEqualTo: false)
+          .orderBy('timestamp', descending: true)
+          .get();
 
       setState(() {
-        _notifications = snapshot.docs;
-        _isLoading = false;
+        _notifications = snapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'message': data['message'] ?? 'No message',
+            'timestamp': (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+            'read': data['read'] ?? false,
+            'category': data['category'] ?? 'Nothing',
+            'isEmergency': data['isEmergency'] ?? false,
+          };
+        }).toList();
       });
     } catch (e) {
+      print('Error loading notifications: $e');
       setState(() {
-        _error = e.toString();
+        _error = 'Failed to load notifications';
         _isLoading = false;
       });
-      print('Error loading notifications: $e');
     }
   }
 
   Future<void> _loadEvents() async {
     try {
-      final query = _firestore
+      final snapshot = await _firestore
           .collection('events')
           .where('dateTime', isGreaterThan: Timestamp.now())
-          .orderBy('dateTime', descending: true);
-      final snapshot = await query.get();
+          .orderBy('dateTime', descending: true)
+          .get();
 
       setState(() {
-        _events = snapshot.docs;
+        _events = snapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'title': data['title'] ?? 'Untitled',
+            'description': data['description'] ?? 'No description',
+            'dateTime': (data['dateTime'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          };
+        }).toList();
       });
     } catch (e) {
       print('Error loading events: $e');
@@ -94,18 +116,64 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   Future<void> _loadAlerts() async {
     try {
       final userId = _auth.currentUser?.uid;
-      if (userId == null) return;
+      if (userId == null) {
+        print('No authenticated user found');
+        return;
+      }
 
-      final query = _firestore
+      // Fetch from notifications collection (for backward compatibility)
+      final notificationsSnapshot = await _firestore
           .collection('notifications')
           .where('userId', isEqualTo: userId)
-          .where('category', isEqualTo: 'Alert')
-          .orderBy('timestamp', descending: true);
-      final snapshot = await query.get();
+          .where('isEmergency', isEqualTo: true)
+          .orderBy('timestamp', descending: true)
+          .get();
+
+      // Fetch from alerts collection
+      final alertsSnapshot = await _firestore
+          .collection('alerts')
+          .where('userId', isEqualTo: userId)
+          .orderBy('timestamp', descending: true)
+          .get();
+
+      final alerts = <Map<String, dynamic>>[];
+
+      // Process notifications
+      for (var doc in notificationsSnapshot.docs) {
+        final data = doc.data();
+        alerts.add({
+          'id': doc.id,
+          'message': data['message'] ?? 'No message',
+          'timestamp': (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          'read': data['read'] ?? false,
+          'category': data['category'] ?? 'Nothing',
+          'isEmergency': data['isEmergency'] ?? true,
+          'collection': 'notifications',
+        });
+      }
+
+      // Process alerts
+      for (var doc in alertsSnapshot.docs) {
+        final data = doc.data();
+        alerts.add({
+          'id': doc.id,
+          'message': data['message'] ?? 'No message',
+          'timestamp': (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          'read': data['read'] ?? false,
+          'category': data['category'] ?? 'Nothing',
+          'isEmergency': data['isEmergency'] ?? true,
+          'collection': 'alerts',
+        });
+      }
+
+      // Sort alerts by timestamp
+      alerts.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
 
       setState(() {
-        _alerts = snapshot.docs;
+        _alerts = alerts;
       });
+
+      print('Loaded ${alerts.length} alerts for user $userId');
     } catch (e) {
       print('Error loading alerts: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -114,26 +182,23 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _markAsRead(String notificationId) async {
+  Future<void> _markAsRead(String id, String collection) async {
     try {
       final userId = _auth.currentUser?.uid;
       if (userId == null) return;
 
-      final doc = await _firestore.collection('notifications').doc(notificationId).get();
+      final doc = await _firestore.collection(collection).doc(id).get();
       if (!doc.exists || doc.data()?['userId'] != userId) {
         print("Notification not found or access denied");
         return;
       }
 
-      await _firestore.collection('notifications').doc(notificationId).update({
+      await _firestore.collection(collection).doc(id).update({
         'read': true,
         'readAt': FieldValue.serverTimestamp(),
       });
 
-      await Future.wait([
-        _loadNotifications(),
-        _loadAlerts(), // Refresh alerts too
-      ]);
+      await _loadData();
     } catch (e) {
       print('Error marking as read: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -148,20 +213,24 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
       if (userId == null) return;
 
       final batch = _firestore.batch();
-      for (final doc in _notifications) {
-        final data = doc.data() as Map<String, dynamic>;
-        if (data['userId'] == userId && !(data['read'] ?? false)) {
-          batch.update(_firestore.collection('notifications').doc(doc.id), {
+      for (final notification in _notifications) {
+        if (!notification['read']) {
+          batch.update(_firestore.collection('notifications').doc(notification['id']), {
+            'read': true,
+            'readAt': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      for (final alert in _alerts) {
+        if (!alert['read']) {
+          batch.update(_firestore.collection(alert['collection']).doc(alert['id']), {
             'read': true,
             'readAt': FieldValue.serverTimestamp(),
           });
         }
       }
       await batch.commit();
-      await Future.wait([
-        _loadNotifications(),
-        _loadAlerts(), // Refresh alerts too
-      ]);
+      await _loadData();
     } catch (e) {
       print('Error marking all as read: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -170,22 +239,19 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _deleteNotification(String notificationId) async {
+  Future<void> _deleteNotification(String id, String collection) async {
     try {
       final userId = _auth.currentUser?.uid;
       if (userId == null) return;
 
-      final doc = await _firestore.collection('notifications').doc(notificationId).get();
+      final doc = await _firestore.collection(collection).doc(id).get();
       if (!doc.exists || doc.data()?['userId'] != userId) {
         print("Notification doesn't exist or doesn't belong to user");
         return;
       }
 
-      await _firestore.collection('notifications').doc(notificationId).delete();
-      await Future.wait([
-        _loadNotifications(),
-        _loadAlerts(), // Refresh alerts too
-      ]);
+      await _firestore.collection(collection).doc(id).delete();
+      await _loadData();
     } catch (e) {
       print('Error deleting notification: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -195,35 +261,30 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   }
 
   Color _getCategoryColor(String? category) {
-    switch (category) {
-      case 'Alert':
-        return Colors.red; // Distinct color for alerts
-      case 'Fire':
+    switch (category?.toLowerCase()) {
+      case 'fire':
         return Colors.redAccent;
-      case 'Earthquake':
+      case 'earthquake':
         return Colors.amber;
-      case 'Tsunami':
+      case 'tsunami':
         return Colors.blue;
-      case 'Event':
-        return Colors.green;
+      case 'nothing':
       default:
         return Colors.teal;
     }
   }
 
-  Widget _buildNotificationItem(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final message = data['message'] ?? 'No message';
-    final isRead = data['read'] ?? false;
-    final category = data['category'] as String? ?? 'Nothing';
-    final timestamp = data['timestamp'] as Timestamp?;
-    final date = timestamp != null
-        ? DateFormat('MMM d, y h:mm a').format(timestamp.toDate())
-        : 'Unknown date';
+  Widget _buildNotificationItem(Map<String, dynamic> item) {
+    final message = item['message'];
+    final isRead = item['read'];
+    final category = item['category'];
+    final timestamp = item['timestamp'] as DateTime;
+    final date = DateFormat('MMM d, y h:mm a').format(timestamp);
+    final isEmergency = item['isEmergency'];
+    final id = item['id'];
+    final collection = item['collection'];
 
-    // Always show alerts, even if they don't match the search query
     if (_searchQuery.isNotEmpty &&
-        category != 'Alert' &&
         !message.toLowerCase().contains(_searchQuery.toLowerCase())) {
       return SizedBox.shrink();
     }
@@ -237,7 +298,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           radius: 16,
           backgroundColor: _getCategoryColor(category).withOpacity(0.2),
           child: Icon(
-            isRead ? Icons.mark_email_read : Icons.mark_email_unread,
+            isEmergency ? Icons.warning : (isRead ? Icons.mark_email_read : Icons.mark_email_unread),
             size: 16,
             color: _getCategoryColor(category),
           ),
@@ -246,7 +307,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           message,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             fontWeight: isRead ? FontWeight.normal : FontWeight.w600,
-            color: category == 'Alert' ? Colors.red : null, // Highlight alerts
+            color: isEmergency ? Colors.red : null,
           ),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
@@ -259,21 +320,18 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         ),
         trailing: IconButton(
           icon: Icon(Icons.delete, color: Colors.red, size: 20),
-          onPressed: () => _deleteNotification(doc.id),
+          onPressed: () => _deleteNotification(id, collection),
         ),
-        onTap: () => _markAsRead(doc.id),
+        onTap: () => _markAsRead(id, collection),
       ),
     );
   }
 
-  Widget _buildEventItem(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final title = data['title'] ?? 'Untitled';
-    final description = data['description'] ?? 'No description';
-    final timestamp = data['dateTime'] as Timestamp?;
-    final date = timestamp != null
-        ? DateFormat('MMM d, y h:mm a').format(timestamp.toDate())
-        : 'Unknown date';
+  Widget _buildEventItem(Map<String, dynamic> item) {
+    final title = item['title'];
+    final description = item['description'];
+    final timestamp = item['dateTime'] as DateTime;
+    final date = DateFormat('MMM d, y h:mm a').format(timestamp);
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -391,6 +449,11 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
               'No alerts yet',
               style: Theme.of(context).textTheme.titleMedium,
             ),
+            SizedBox(height: 8),
+            TextButton(
+              onPressed: _loadAlerts,
+              child: Text('Refresh Alerts'),
+            ),
           ],
         ),
       );
@@ -434,12 +497,12 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           tabs: [
             Tab(text: 'Notifications'),
             Tab(text: 'Events'),
-            Tab(text: 'Alerts'), // New tab
+            Tab(text: 'Alerts'),
           ],
           onTap: (index) {
             setState(() {
               _selectedTabIndex = index;
-              _searchQuery = ''; // Reset search when switching tabs
+              _searchQuery = '';
             });
           },
         ),
@@ -460,13 +523,13 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                 child: Wrap(
                   spacing: 12,
                   runSpacing: 12,
-                  children: _events.map((doc) => SizedBox(
+                  children: _events.map((item) => SizedBox(
                     width: MediaQuery.of(context).size.width > 1200
                         ? 300
                         : MediaQuery.of(context).size.width > 800
                         ? 250
                         : MediaQuery.of(context).size.width / 2 - 18,
-                    child: _buildEventItem(doc),
+                    child: _buildEventItem(item),
                   )).toList(),
                 ),
               ),
