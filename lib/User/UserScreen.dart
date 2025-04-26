@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'reclamation_screen.dart';
 import 'account_settings_screen.dart';
+import 'reclamation_details_screen.dart';
 
 class UserScreen extends StatefulWidget {
   @override
@@ -14,7 +15,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isLoading = true;
-  List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _events = [];
   List<Map<String, dynamic>> _alerts = [];
   String? _error;
@@ -39,51 +39,10 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
     }
     setState(() => _isLoading = true);
     await Future.wait([
-      _loadNotifications(),
       _loadEvents(),
       _loadAlerts(),
     ]);
     setState(() => _isLoading = false);
-  }
-
-  Future<void> _loadNotifications() async {
-    try {
-      final userId = _auth.currentUser?.uid;
-      if (userId == null) {
-        setState(() {
-          _error = 'User not authenticated';
-          _isLoading = false;
-        });
-        return;
-      }
-
-      final snapshot = await _firestore
-          .collection('notifications')
-          .where('userId', isEqualTo: userId)
-          .where('isEmergency', isEqualTo: false)
-          .orderBy('timestamp', descending: true)
-          .get();
-
-      setState(() {
-        _notifications = snapshot.docs.map((doc) {
-          final data = doc.data();
-          return {
-            'id': doc.id,
-            'message': data['message'] ?? 'No message',
-            'timestamp': (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
-            'read': data['read'] ?? false,
-            'category': data['category'] ?? 'Nothing',
-            'isEmergency': data['isEmergency'] ?? false,
-          };
-        }).toList();
-      });
-    } catch (e) {
-      print('Error loading notifications: $e');
-      setState(() {
-        _error = 'Failed to load notifications';
-        _isLoading = false;
-      });
-    }
   }
 
   Future<void> _loadEvents() async {
@@ -121,7 +80,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         return;
       }
 
-      // Fetch from notifications collection (for backward compatibility)
       final notificationsSnapshot = await _firestore
           .collection('notifications')
           .where('userId', isEqualTo: userId)
@@ -129,7 +87,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           .orderBy('timestamp', descending: true)
           .get();
 
-      // Fetch from alerts collection
       final alertsSnapshot = await _firestore
           .collection('alerts')
           .where('userId', isEqualTo: userId)
@@ -138,7 +95,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
 
       final alerts = <Map<String, dynamic>>[];
 
-      // Process notifications
       for (var doc in notificationsSnapshot.docs) {
         final data = doc.data();
         alerts.add({
@@ -152,7 +108,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         });
       }
 
-      // Process alerts
       for (var doc in alertsSnapshot.docs) {
         final data = doc.data();
         alerts.add({
@@ -166,14 +121,11 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         });
       }
 
-      // Sort alerts by timestamp
       alerts.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
 
       setState(() {
         _alerts = alerts;
       });
-
-      print('Loaded ${alerts.length} alerts for user $userId');
     } catch (e) {
       print('Error loading alerts: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -197,8 +149,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         'read': true,
         'readAt': FieldValue.serverTimestamp(),
       });
-
-      await _loadData();
     } catch (e) {
       print('Error marking as read: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -213,9 +163,14 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
       if (userId == null) return;
 
       final batch = _firestore.batch();
-      for (final notification in _notifications) {
-        if (!notification['read']) {
-          batch.update(_firestore.collection('notifications').doc(notification['id']), {
+      final notificationsSnapshot = await _firestore
+          .collection('notifications')
+          .where('userId', isEqualTo: userId)
+          .where('isEmergency', isEqualTo: false)
+          .get();
+      for (final doc in notificationsSnapshot.docs) {
+        if (!(doc.data()['read'] ?? false)) {
+          batch.update(_firestore.collection('notifications').doc(doc.id), {
             'read': true,
             'readAt': FieldValue.serverTimestamp(),
           });
@@ -230,7 +185,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         }
       }
       await batch.commit();
-      await _loadData();
     } catch (e) {
       print('Error marking all as read: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -251,7 +205,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
       }
 
       await _firestore.collection(collection).doc(id).delete();
-      await _loadData();
     } catch (e) {
       print('Error deleting notification: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -268,21 +221,24 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         return Colors.amber;
       case 'tsunami':
         return Colors.blue;
+      case 'reclamation update':
+        return Colors.teal;
       case 'nothing':
       default:
-        return Colors.teal;
+        return Colors.grey;
     }
   }
 
   Widget _buildNotificationItem(Map<String, dynamic> item) {
-    final message = item['message'];
-    final isRead = item['read'];
-    final category = item['category'];
+    final message = item['message'] as String;
+    final isRead = item['read'] as bool;
+    final category = item['category'] as String;
     final timestamp = item['timestamp'] as DateTime;
     final date = DateFormat('MMM d, y h:mm a').format(timestamp);
-    final isEmergency = item['isEmergency'];
-    final id = item['id'];
-    final collection = item['collection'];
+    final isEmergency = item['isEmergency'] as bool;
+    final id = item['id'] as String;
+    final collection = item['collection'] as String;
+    final reclamationId = item['reclamationId'] as String?;
 
     if (_searchQuery.isNotEmpty &&
         !message.toLowerCase().contains(_searchQuery.toLowerCase())) {
@@ -298,7 +254,11 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           radius: 16,
           backgroundColor: _getCategoryColor(category).withOpacity(0.2),
           child: Icon(
-            isEmergency ? Icons.warning : (isRead ? Icons.mark_email_read : Icons.mark_email_unread),
+            category == 'Reclamation Update'
+                ? Icons.report
+                : isEmergency
+                ? Icons.warning
+                : (isRead ? Icons.mark_email_read : Icons.mark_email_unread),
             size: 16,
             color: _getCategoryColor(category),
           ),
@@ -322,7 +282,23 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           icon: Icon(Icons.delete, color: Colors.red, size: 20),
           onPressed: () => _deleteNotification(id, collection),
         ),
-        onTap: () => _markAsRead(id, collection),
+        onTap: () async {
+          await _markAsRead(id, collection);
+          if (category == 'Reclamation Update') {
+            if (reclamationId != null) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ReclamationDetailsScreen(reclamationId: reclamationId),
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Reclamation details not available')),
+              );
+            }
+          }
+        },
       ),
     );
   }
@@ -406,59 +382,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
       );
     }
 
-    if (_selectedTabIndex == 0 && _notifications.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.notifications_off, size: 48, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              'No notifications yet',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_selectedTabIndex == 1 && _events.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.event_busy, size: 48, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              'No upcoming events',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_selectedTabIndex == 2 && _alerts.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.warning_amber, size: 48, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              'No alerts yet',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            SizedBox(height: 8),
-            TextButton(
-              onPressed: _loadAlerts,
-              child: Text('Refresh Alerts'),
-            ),
-          ],
-        ),
-      );
-    }
-
     return Column(
       children: [
         Padding(
@@ -474,20 +397,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
             onChanged: (value) => setState(() => _searchQuery = value),
           ),
         ),
-        if (_selectedTabIndex == 0 && _notifications.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: _markAllAsRead,
-                  icon: Icon(Icons.mark_email_read, size: 16),
-                  label: Text('Mark all as read', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-          ),
         TabBar(
           controller: _tabController,
           labelStyle: Theme.of(context).textTheme.bodyMedium,
@@ -510,10 +419,72 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           child: RefreshIndicator(
             onRefresh: _loadData,
             child: _selectedTabIndex == 0
-                ? ListView.builder(
-              itemCount: _notifications.length,
-              itemBuilder: (context, index) {
-                return _buildNotificationItem(_notifications[index]);
+                ? StreamBuilder<QuerySnapshot>(
+              stream: _firestore
+                  .collection('notifications')
+                  .where('userId', isEqualTo: _auth.currentUser?.uid)
+                  .where('isEmergency', isEqualTo: false)
+                  .orderBy('timestamp', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
+                final notifications = snapshot.data?.docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return {
+                    'id': doc.id,
+                    'message': data['message'] ?? 'No message',
+                    'timestamp': (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+                    'read': data['read'] ?? false,
+                    'category': data['category'] ?? 'Nothing',
+                    'isEmergency': data['isEmergency'] ?? false,
+                    'reclamationId': data['reclamationId'],
+                    'collection': 'notifications',
+                  };
+                }).toList() ??
+                    [];
+                if (notifications.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.notifications_off, size: 48, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'No notifications yet',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton.icon(
+                            onPressed: _markAllAsRead,
+                            icon: Icon(Icons.mark_email_read, size: 16),
+                            label: Text('Mark all as read', style: TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: notifications.length,
+                        itemBuilder: (context, index) => _buildNotificationItem(notifications[index]),
+                      ),
+                    ),
+                  ],
+                );
               },
             )
                 : _selectedTabIndex == 1

@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 
 class AdminReclamationsScreen extends StatefulWidget {
   const AdminReclamationsScreen({super.key});
-
   @override
   _AdminReclamationsScreenState createState() => _AdminReclamationsScreenState();
 
@@ -28,7 +27,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
   Map<String, bool> _isActionLoading = {};
   bool _isAdmin = false;
   DocumentSnapshot? _lastDocument;
-
   final List<String> _statusOptions = [
     'all',
     'pending',
@@ -44,7 +42,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       refreshData();
     });
   }
-
   @override
   void dispose() {
     _adminNotesController.dispose();
@@ -262,19 +259,24 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
   }
 
   Future<void> _addAdminResponse(String docId, String response) async {
-    if (response.isEmpty) {
+    // Validate input
+    final trimmedResponse = response.trim();
+    if (trimmedResponse.isEmpty) {
       _showSnackbar('Response cannot be empty');
       return;
     }
 
+    // Check admin privileges
     if (!_isAdmin) {
       _showPermissionDeniedSnackbar();
       return;
     }
 
+    // Set loading state
     if (mounted) {
       setState(() {
         _isActionLoading[docId] = true;
+        _isResponding[docId] = true;
       });
     }
 
@@ -285,40 +287,69 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       }
 
       final responseData = {
-        'message': response,
-        'createdAt': FieldValue.serverTimestamp(),
+        'message': trimmedResponse,
+        'createdAt': Timestamp.now(), // Use Timestamp.now() instead of FieldValue.serverTimestamp()
         'adminId': user.uid,
         'adminName': user.displayName ?? 'Admin',
       };
 
       final docRef = _firestore.collection('reclamations').doc(docId);
-      final docSnapshot = await docRef.get();
 
-      if (!docSnapshot.exists) {
-        throw Exception('Reclamation document not found');
-      }
+      // Use a transaction to ensure atomic updates
+      await _firestore.runTransaction((transaction) async {
+        final docSnapshot = await transaction.get(docRef);
+        if (!docSnapshot.exists) {
+          throw Exception('Reclamation document not found');
+        }
 
-      await docRef.update({
-        'adminResponses': FieldValue.arrayUnion([responseData]),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'status': 'in-progress',
-        'adminId': user.uid,
+        // Get the current adminResponses array (or initialize as empty)
+        final currentResponses = (docSnapshot.data()?['adminResponses'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+
+        // Append the new response
+        currentResponses.add(responseData);
+
+        // Update the document with the full array and other fields
+        transaction.update(docRef, {
+          'adminResponses': currentResponses,
+          'updatedAt': Timestamp.now(), // Use Timestamp.now() for consistency
+          'status': 'in-progress',
+          'adminId': user.uid,
+        });
       });
 
+      // Update stats counter
       await _updateStatsCounter('in-progress');
-      _adminNotesController.clear();
 
+      // Clear input and reset responding state
+      _adminNotesController.clear();
       if (mounted) {
         setState(() {
           _isResponding[docId] = false;
         });
       }
 
+      // Refresh reclamations list
       await _loadReclamations();
+
       _showSnackbar('Response added successfully');
     } catch (e) {
-      _handleError('Failed to add response', e);
+      // Enhanced error handling
+      String errorMessage = 'Failed to add response';
+      if (e is FirebaseException) {
+        if (e.code == 'permission-denied') {
+          errorMessage = 'Admin privileges required';
+        } else if (e.code == 'not-found') {
+          errorMessage = 'Reclamation not found';
+        } else {
+          errorMessage = '${e.code}: ${e.message}';
+        }
+      } else {
+        errorMessage = '$errorMessage: ${e.toString()}';
+        debugPrint('Error in _addAdminResponse: $e'); // Log for debugging
+      }
+      _showSnackbar(errorMessage);
     } finally {
+      // Ensure loading state is reset
       if (mounted) {
         setState(() {
           _isActionLoading[docId] = false;
@@ -326,7 +357,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       }
     }
   }
-
   void _showSnackbar(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

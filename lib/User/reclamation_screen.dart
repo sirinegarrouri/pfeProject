@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 class ReclamationScreen extends StatefulWidget {
   @override
   _ReclamationScreenState createState() => _ReclamationScreenState();
 }
-
 class _ReclamationScreenState extends State<ReclamationScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _subjectController = TextEditingController();
@@ -16,6 +14,13 @@ class _ReclamationScreenState extends State<ReclamationScreen> {
   bool _isSubmitting = false;
   String? _error;
   String? _success;
+  String? _selectedCategory;
+  final List<String> _categories = [
+    'Teacher',
+    'Exams Plan',
+    'Time Plan',
+    'Catching Up Sessions'
+  ];
 
   @override
   void dispose() {
@@ -40,6 +45,7 @@ class _ReclamationScreenState extends State<ReclamationScreen> {
       await _firestore.collection('reclamations').add({
         'userId': user.uid,
         'email': user.email,
+        'category': _selectedCategory,
         'subject': _subjectController.text,
         'message': _messageController.text,
         'status': 'pending',
@@ -50,6 +56,7 @@ class _ReclamationScreenState extends State<ReclamationScreen> {
         _success = 'Your complaint has been submitted successfully!';
         _subjectController.clear();
         _messageController.clear();
+        _selectedCategory = null;
       });
     } catch (e) {
       setState(() {
@@ -91,6 +98,32 @@ class _ReclamationScreenState extends State<ReclamationScreen> {
                     style: TextStyle(color: Colors.green),
                   ),
                 ),
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                decoration: InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.category),
+                ),
+                items: _categories.map((String category) {
+                  return DropdownMenuItem<String>(
+                    value: category,
+                    child: Text(category),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) {
+                  setState(() {
+                    _selectedCategory = newValue;
+                  });
+                },
+                validator: (value) {
+                  if (value == null) {
+                    return 'Please select a category';
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: 16),
               TextFormField(
                 controller: _subjectController,
                 decoration: InputDecoration(
@@ -141,8 +174,7 @@ class _ReclamationScreenState extends State<ReclamationScreen> {
                   padding: EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
-             SizedBox(height: 16),
-             
+              SizedBox(height: 16),
             ],
           ),
         ),

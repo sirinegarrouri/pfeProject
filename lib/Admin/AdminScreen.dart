@@ -8,7 +8,6 @@ import 'user_management_screen.dart';
 import 'settings_screen.dart';
 import 'admin_reclamations_screen.dart';
 import 'events_screen.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();

@@ -7,7 +7,6 @@ class AccountSettingsScreen extends StatefulWidget {
   @override
   _AccountSettingsScreenState createState() => _AccountSettingsScreenState();
 }
-
 class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -24,12 +23,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   String? _error;
   String? _success;
   User? _user;
-
-  // Preferences
   bool _darkMode = false;
   bool _notificationsEnabled = true;
   String _language = 'English';
-
+  ThemeMode _themeMode = ThemeMode.light;
   @override
   void initState() {
     super.initState();
@@ -54,10 +51,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         _nameController = TextEditingController(text: data['name'] ?? '');
         _phoneController = TextEditingController(text: data['phone'] ?? '');
 
-        // Load preferences
         _darkMode = data['preferences']?['darkMode'] ?? false;
         _notificationsEnabled = data['preferences']?['notifications'] ?? true;
         _language = data['preferences']?['language'] ?? 'English';
+        _themeMode = _darkMode ? ThemeMode.dark : ThemeMode.light;
       } else {
         _nameController = TextEditingController();
         _phoneController = TextEditingController();
@@ -71,6 +68,32 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     } catch (e) {
       setState(() {
         _error = 'Failed to load user data: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _savePreferences() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _success = null;
+      });
+      await _firestore.collection('users').doc(_user!.uid).set({
+        'preferences': {
+          'darkMode': _darkMode,
+          'notifications': _notificationsEnabled,
+          'language': _language,
+        }
+      }, SetOptions(merge: true));
+      setState(() {
+        _success = 'Preferences saved successfully!';
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to save preferences: ${e.toString()}';
         _isLoading = false;
       });
     }
@@ -221,9 +244,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       await _reauthenticate();
       await _firestore.collection('users').doc(_user!.uid).delete();
       await _user!.delete();
-      Navigator.pushNamedAndRemoveUntil(
-          context, '/login', (route) => false);
-
+      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
     } catch (e) {
       setState(() {
         _error = 'Failed to delete account: ${e.toString()}';
@@ -242,6 +263,74 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     super.dispose();
   }
 
+  // Theme definitions
+  ThemeData get _lightTheme => ThemeData(
+    brightness: Brightness.light,
+    primarySwatch: Colors.green,
+    scaffoldBackgroundColor: Colors.white,
+    cardTheme: CardTheme(
+      elevation: 2,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+    ),
+
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+      filled: true,
+      fillColor: Colors.grey[100],
+    ),
+    textTheme: TextTheme(
+      bodyMedium: TextStyle(color: Colors.black87),
+    ),
+  );
+
+  ThemeData get _darkTheme => ThemeData(
+    brightness: Brightness.dark,
+    primarySwatch: Colors.green,
+    scaffoldBackgroundColor: Colors.grey[900],
+    cardTheme: CardTheme(
+      elevation: 2,
+      color: Colors.grey[800],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+    ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: Colors.grey[850],
+      foregroundColor: Colors.white,
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+      filled: true,
+      fillColor: Colors.grey[800],
+    ),
+    textTheme: TextTheme(
+      bodyMedium: TextStyle(color: Colors.white70),
+    ),
+  );
+
   Widget _buildProfileSection() {
     return Card(
       child: Padding(
@@ -249,7 +338,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Profile Information', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Profile Information',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             SizedBox(height: 16),
             Form(
               key: _formKey,
@@ -281,7 +371,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                           : IconButton(
                         icon: Icon(Icons.warning, color: Colors.orange),
                         onPressed: _sendVerificationEmail,
-                        tooltip: 'Email not verified. Click to resend verification',
+                        tooltip:
+                        'Email not verified. Click to resend verification',
                       ),
                     ),
                     keyboardType: TextInputType.emailAddress,
@@ -325,6 +416,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       ),
     );
   }
+
   Widget _buildSecuritySection() {
     return Card(
       child: Padding(
@@ -332,7 +424,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Security', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Security',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             SizedBox(height: 16),
             TextFormField(
               controller: _currentPasswordController,
@@ -402,22 +495,30 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Preferences', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Preferences',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             SizedBox(height: 16),
             SwitchListTile(
               title: Text('Dark Mode'),
               value: _darkMode,
-              onChanged: _isLoading ? null : (value) {
-                setState(() => _darkMode = value);
-                _updateProfile(); // Auto-save preference
+              onChanged: _isLoading
+                  ? null
+                  : (value) {
+                setState(() {
+                  _darkMode = value;
+                  _themeMode = value ? ThemeMode.dark : ThemeMode.light;
+                });
+                _savePreferences();
               },
             ),
             SwitchListTile(
               title: Text('Enable Notifications'),
               value: _notificationsEnabled,
-              onChanged: _isLoading ? null : (value) {
+              onChanged: _isLoading
+                  ? null
+                  : (value) {
                 setState(() => _notificationsEnabled = value);
-                _updateProfile(); // Auto-save preference
+                _savePreferences();
               },
             ),
             ListTile(
@@ -430,12 +531,24 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                   child: Text(lang),
                 ))
                     .toList(),
-                onChanged: _isLoading ? null : (value) {
+                onChanged: _isLoading
+                    ? null
+                    : (value) {
                   if (value != null) {
                     setState(() => _language = value);
-                    _updateProfile(); // Auto-save preference
+                    _savePreferences();
                   }
                 },
+              ),
+            ),
+            SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _savePreferences,
+                child: _isLoading
+                    ? CircularProgressIndicator()
+                    : Text('Save Preferences'),
               ),
             ),
           ],
@@ -446,27 +559,31 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
   Widget _buildDangerZone() {
     return Card(
-      color: Colors.red.shade50,
+      color: _darkMode ? Colors.red.shade900 : Colors.red.shade50,
       child: Padding(
         padding: EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Danger Zone', style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.red,
-            )),
+            Text('Danger Zone',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                )),
             SizedBox(height: 16),
-            Text('These actions are irreversible. Proceed with caution.',
-                style: TextStyle(color: Colors.red.shade700)),
+            Text(
+                'These actions are irreversible. Proceed with caution.',
+                style: TextStyle(
+                    color: _darkMode ? Colors.red.shade300 : Colors.red.shade700)),
             SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _deleteAccount,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red.shade100,
+                  backgroundColor:
+                  _darkMode ? Colors.red.shade800 : Colors.red.shade100,
                   foregroundColor: Colors.red,
                 ),
                 child: Text('Delete Account'),
@@ -481,74 +598,177 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _user == null) {
-      return Scaffold(
-        appBar: AppBar(title: Text('Account Settings')),
-        body: Center(child: CircularProgressIndicator()),
+      return MaterialApp(
+        theme: _lightTheme,
+        darkTheme: _darkTheme,
+        themeMode: _themeMode,
+        home: Scaffold(
+          appBar: AppBar(title: Text('Account Settings')),
+          body: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
     if (_user == null) {
-      return Scaffold(
-        appBar: AppBar(title: Text('Account Settings')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.red),
-              SizedBox(height: 20),
-              Text('You need to be logged in to access settings'),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pushNamed(context, '/login');
-                },
-                child: Text('Go to Login'),
-              ),
-            ],
+      return MaterialApp(
+        theme: _lightTheme,
+        darkTheme: _darkTheme,
+        themeMode: _themeMode,
+        home: Scaffold(
+          appBar: AppBar(title: Text('Account Settings')),
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: Colors.red),
+                SizedBox(height: 20),
+                Text('You need to be logged in to access settings'),
+                SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pushNamed(context, '/login');
+                  },
+                  child: Text('Go to Login'),
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Account Settings'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadUserData,
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          children: [
-            if (_error != null)
-              Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: Text(
-                  _error!,
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-            if (_success != null)
-              Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: Text(
-                  _success!,
-                  style: TextStyle(color: Colors.green),
-                ),
-              ),
-            _buildProfileSection(),
-            SizedBox(height: 16),
-            _buildSecuritySection(),
-            SizedBox(height: 16),
-            _buildPreferencesSection(),
-            SizedBox(height: 16),
-            _buildDangerZone(),
+    return MaterialApp(
+      theme: _lightTheme,
+      darkTheme: _darkTheme,
+      themeMode: _themeMode,
+      home: Scaffold(
+        appBar: AppBar(
+          title: Text('Account Settings'),
+          actions: [
+            IconButton(
+              icon: Icon(Icons.refresh, size: 20),
+              onPressed: _loadUserData,
+              tooltip: 'Refresh',
+            ),
           ],
         ),
+        drawer: _buildDrawer(context),
+        body: SingleChildScrollView(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            children: [
+              if (_error != null)
+                Padding(
+                  padding: EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+              if (_success != null)
+                Padding(
+                  padding: EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    _success!,
+                    style: TextStyle(color: Colors.green),
+                  ),
+                ),
+              _buildProfileSection(),
+              SizedBox(height: 16),
+              _buildSecuritySection(),
+              SizedBox(height: 16),
+              _buildPreferencesSection(),
+              SizedBox(height: 16),
+              _buildDangerZone(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawer(BuildContext context) {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.teal, Colors.tealAccent],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Colors.white,
+                  child: Icon(Icons.person, size: 32, color: Colors.teal),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'User Panel',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  'Welcome back',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: Icon(Icons.notifications),
+            title: Text('Notifications'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/notifications');
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.report_problem),
+            title: Text('Reclamation'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, '/reclamation');
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.settings),
+            title: Text('Account Settings'),
+            selected: true,
+            onTap: () {
+              Navigator.pop(context);
+            },
+          ),
+          Divider(),
+          ListTile(
+            leading: Icon(Icons.logout, color: Colors.red),
+            title: Text('Logout', style: TextStyle(color: Colors.red)),
+            onTap: () async {
+              Navigator.pop(context);
+              try {
+                await _auth.signOut();
+                Navigator.pushNamedAndRemoveUntil(
+                    context, '/login', (route) => false);
+              } catch (e) {
+                setState(() {
+                  _error = 'Failed to sign out: ${e.toString()}';
+                });
+              }
+            },
+          ),
+        ],
       ),
     );
   }
