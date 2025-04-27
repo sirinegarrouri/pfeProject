@@ -3,8 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../Admin/AdminScreen.dart';
-import 'UserScreen.dart';
+import 'Admin/AdminScreen.dart';
+import 'User/UserScreen.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -126,7 +126,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = false);
   }
 
-  // ---------------- NAVIGATE BASED ON ROLE ----------------
   Future<void> _navigateBasedOnRole(String role) async {
     if (role == 'admin') {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AdminDashboard()));
@@ -135,7 +134,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // ---------------- SAVE FCM TOKEN ----------------
   Future<void> _saveFcmToken(User user) async {
     try {
       String? token = await _messaging.getToken();

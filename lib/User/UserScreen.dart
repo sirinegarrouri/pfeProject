@@ -25,7 +25,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadData();
   }
 
@@ -104,6 +104,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           'read': data['read'] ?? false,
           'category': data['category'] ?? 'Nothing',
           'isEmergency': data['isEmergency'] ?? true,
+          'reclamationId': data['reclamationId'],
           'collection': 'notifications',
         });
       }
@@ -117,6 +118,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           'read': data['read'] ?? false,
           'category': data['category'] ?? 'Nothing',
           'isEmergency': data['isEmergency'] ?? true,
+          'reclamationId': data['reclamationId'],
           'collection': 'alerts',
         });
       }
@@ -137,22 +139,44 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   Future<void> _markAsRead(String id, String collection) async {
     try {
       final userId = _auth.currentUser?.uid;
-      if (userId == null) return;
-
-      final doc = await _firestore.collection(collection).doc(id).get();
-      if (!doc.exists || doc.data()?['userId'] != userId) {
-        print("Notification not found or access denied");
+      if (userId == null) {
+        print('No authenticated user');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Please sign in to mark notifications as read')),
+        );
         return;
       }
 
-      await _firestore.collection(collection).doc(id).update({
+      print('Attempting to mark as read with user: $userId, collection: $collection, id: $id');
+
+      final docRef = _firestore.collection(collection).doc(id);
+      final doc = await docRef.get();
+      if (!doc.exists) {
+        print('Notification not found: $id in $collection');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Notification not found')),
+        );
+        return;
+      }
+      final docData = doc.data() as Map<String, dynamic>?;
+      if (docData == null || docData['userId'] != userId) {
+        print('Access denied: Notification $id does not belong to user $userId, doc userId: ${docData?['userId']}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You do not have permission to mark this notification as read')),
+        );
+        return;
+      }
+
+      await docRef.update({
         'read': true,
         'readAt': FieldValue.serverTimestamp(),
       });
+      print('Successfully marked notification $id as read');
+      setState(() {}); // Refresh UI
     } catch (e) {
       print('Error marking as read: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to mark as read')),
+        SnackBar(content: Text('Failed to mark as read: $e')),
       );
     }
   }
@@ -160,9 +184,19 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   Future<void> _markAllAsRead() async {
     try {
       final userId = _auth.currentUser?.uid;
-      if (userId == null) return;
+      if (userId == null) {
+        print('No authenticated user');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Please sign in to mark notifications as read')),
+        );
+        return;
+      }
+
+      print('Marking all as read for user: $userId');
 
       final batch = _firestore.batch();
+
+      // Fetch notifications
       final notificationsSnapshot = await _firestore
           .collection('notifications')
           .where('userId', isEqualTo: userId)
@@ -176,19 +210,28 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           });
         }
       }
-      for (final alert in _alerts) {
-        if (!alert['read']) {
-          batch.update(_firestore.collection(alert['collection']).doc(alert['id']), {
+
+      // Fetch alerts
+      final alertsSnapshot = await _firestore
+          .collection('alerts')
+          .where('userId', isEqualTo: userId)
+          .get();
+      for (final doc in alertsSnapshot.docs) {
+        if (!(doc.data()['read'] ?? false)) {
+          batch.update(_firestore.collection('alerts').doc(doc.id), {
             'read': true,
             'readAt': FieldValue.serverTimestamp(),
           });
         }
       }
+
       await batch.commit();
+      print('Successfully marked all notifications and alerts as read');
+      setState(() {}); // Refresh UI
     } catch (e) {
       print('Error marking all as read: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to mark all as read')),
+        SnackBar(content: Text('Failed to mark all as read: $e')),
       );
     }
   }
@@ -196,19 +239,27 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   Future<void> _deleteNotification(String id, String collection) async {
     try {
       final userId = _auth.currentUser?.uid;
-      if (userId == null) return;
+      if (userId == null) {
+        print('No authenticated user');
+        return;
+      }
 
       final doc = await _firestore.collection(collection).doc(id).get();
       if (!doc.exists || doc.data()?['userId'] != userId) {
-        print("Notification doesn't exist or doesn't belong to user");
+        print("Notification doesn't exist or doesn't belong to user: $id");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Cannot delete this notification')),
+        );
         return;
       }
 
       await _firestore.collection(collection).doc(id).delete();
+      print('Successfully deleted notification $id');
+      setState(() {}); // Refresh UI
     } catch (e) {
       print('Error deleting notification: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to delete notification')),
+        SnackBar(content: Text('Failed to delete notification: $e')),
       );
     }
   }
@@ -224,6 +275,21 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
       case 'reclamation update':
         return Colors.teal;
       case 'nothing':
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'in-progress':
+        return Colors.blue;
+      case 'approved':
+        return Colors.green;
+      case 'rejected':
+        return Colors.red;
       default:
         return Colors.grey;
     }
@@ -284,19 +350,13 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         ),
         onTap: () async {
           await _markAsRead(id, collection);
-          if (category == 'Reclamation Update') {
-            if (reclamationId != null) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ReclamationDetailsScreen(reclamationId: reclamationId),
-                ),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Reclamation details not available')),
-              );
-            }
+          if (category == 'Reclamation Update' && reclamationId != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ReclamationDetailsScreen(reclamationId: reclamationId),
+              ),
+            );
           }
         },
       ),
@@ -340,6 +400,81 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildReclamationItem(Map<String, dynamic> item) {
+    final subject = item['subject'] as String;
+    final status = item['status'] as String;
+    final category = item['category'] as String;
+    final timestamp = item['createdAt'] as DateTime;
+    final adminResponse = item['adminResponse'] as String?;
+    final date = DateFormat('MMM d, y h:mm a').format(timestamp);
+    final id = item['id'] as String;
+
+    print('Reclamation $id: subject=$subject, status=$status, adminResponse=$adminResponse');
+
+    if (_searchQuery.isNotEmpty &&
+        !subject.toLowerCase().contains(_searchQuery.toLowerCase())) {
+      return SizedBox.shrink();
+    }
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 3,
+      margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          radius: 16,
+          backgroundColor: _getStatusColor(status).withOpacity(0.2),
+          child: Icon(
+            Icons.report,
+            size: 16,
+            color: _getStatusColor(status),
+          ),
+        ),
+        title: Text(
+          subject,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Status: ${StringExtension(status).capitalize()} • $category',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: _getStatusColor(status),
+              ),
+            ),
+            Text(
+              'Submitted: $date',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Colors.black45,
+              ),
+            ),
+            Text(
+              'Response: ${adminResponse != null && adminResponse.isNotEmpty ? (adminResponse.length > 30 ? adminResponse.substring(0, 30) + '...' : adminResponse) : 'No response yet'}',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Colors.black54,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ReclamationDetailsScreen(reclamationId: id),
+            ),
+          );
+        },
       ),
     );
   }
@@ -388,7 +523,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           padding: const EdgeInsets.all(12.0),
           child: TextField(
             decoration: InputDecoration(
-              hintText: 'Search notifications...',
+              hintText: 'Search ${_selectedTabIndex == 3 ? 'reclamations' : 'notifications'}...',
               prefixIcon: Icon(Icons.search, size: 20),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               contentPadding: EdgeInsets.symmetric(vertical: 10),
@@ -407,6 +542,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
             Tab(text: 'Notifications'),
             Tab(text: 'Events'),
             Tab(text: 'Alerts'),
+            Tab(text: 'Reclamations'),
           ],
           onTap: (index) {
             setState(() {
@@ -431,10 +567,24 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                   return Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
+                  print('Notification StreamBuilder error: ${snapshot.error}');
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Error: ${snapshot.error}'),
+                        SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: () => setState(() {}),
+                          child: Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  );
                 }
                 final notifications = snapshot.data?.docs.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
+                  print('Notification ${doc.id}: $data');
                   return {
                     'id': doc.id,
                     'message': data['message'] ?? 'No message',
@@ -505,10 +655,83 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                 ),
               ),
             )
-                : ListView.builder(
+                : _selectedTabIndex == 2
+                ? ListView.builder(
               itemCount: _alerts.length,
               itemBuilder: (context, index) {
                 return _buildNotificationItem(_alerts[index]);
+              },
+            )
+                : StreamBuilder<QuerySnapshot>(
+              stream: _firestore
+                  .collection('reclamations')
+                  .where('userId', isEqualTo: _auth.currentUser?.uid)
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  print('Reclamation StreamBuilder error: ${snapshot.error}');
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Error: ${snapshot.error}'),
+                        SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: () => setState(() {}),
+                          child: Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                final reclamations = snapshot.data?.docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  print('Reclamation ${doc.id}: $data');
+                  // Extract the latest admin response message
+                  String? latestResponse;
+                  final adminResponses = data['adminResponses'] as List<dynamic>?;
+                  if (adminResponses != null && adminResponses.isNotEmpty) {
+                    // Sort by createdAt to get the latest response
+                    adminResponses.sort((a, b) {
+                      final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                      final bTime = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                      return bTime.compareTo(aTime); // Descending
+                    });
+                    latestResponse = adminResponses.first['message']?.toString();
+                  }
+                  return {
+                    'id': doc.id,
+                    'subject': data['subject'] ?? 'No subject',
+                    'category': data['category'] ?? 'N/A',
+                    'status': data['status'] ?? 'Pending',
+                    'adminResponse': latestResponse,
+                    'createdAt': (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+                  };
+                }).toList() ??
+                    [];
+                if (reclamations.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.report_off, size: 48, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'No reclamations yet',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return ListView.builder(
+                  itemCount: reclamations.length,
+                  itemBuilder: (context, index) => _buildReclamationItem(reclamations[index]),
+                );
               },
             ),
           ),
@@ -613,7 +836,9 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
               ? 'Notifications'
               : _selectedTabIndex == 1
               ? 'Events'
-              : 'Alerts',
+              : _selectedTabIndex == 2
+              ? 'Alerts'
+              : 'Reclamations',
         ),
         actions: [
           IconButton(
@@ -631,5 +856,13 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+}
+
+// Extension to capitalize the first letter of a string
+extension StringExtension on String {
+  String capitalize() {
+    if (isEmpty) return this;
+    return '${this[0].toUpperCase()}${substring(1).toLowerCase()}';
   }
 }

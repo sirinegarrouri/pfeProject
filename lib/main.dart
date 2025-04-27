@@ -7,7 +7,7 @@ import 'Login/firebase_options.dart'; // Import the FirebaseOptions class for yo
 
 import 'Admin/AdminScreen.dart';
 import 'User/UserScreen.dart';
-import 'User/LoginScreen.dart';
+import 'LoginScreen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -30,7 +30,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Role-Based App',
+      title: 'Sys-Alert App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.deepPurple,

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:share_plus/share_plus.dart';
 import 'dart:html' as html if (dart.library.io) 'dart:io';
+
 class SettingsScreen extends StatefulWidget {
 @override
 _SettingsScreenState createState() => _SettingsScreenState();
@@ -29,7 +30,6 @@ bool _isChangingPassword = false;
 bool _showCurrentPassword = false;
 bool _showNewPassword = false;
 bool _isDarkMode = false;
-bool _notificationsEnabled = true;
 String? _selectedLanguage = 'English';
 
 @override
@@ -63,7 +63,6 @@ setState(() {
 _nameController.text = data['name'] ?? '';
 _emailController.text = user.email ?? '';
 _isDarkMode = data['darkMode'] ?? false;
-_notificationsEnabled = data['notificationsEnabled'] ?? true;
 _selectedLanguage = data['language'] ?? 'English';
 });
 }
@@ -87,7 +86,6 @@ if (user != null) {
 await _firestore.collection('users').doc(user.uid).update({
 'name': _nameController.text,
 'darkMode': _isDarkMode,
-'notificationsEnabled': _notificationsEnabled,
 'language': _selectedLanguage,
 'updatedAt': FieldValue.serverTimestamp(),
 });
@@ -140,8 +138,7 @@ message = 'New password is too weak';
 ScaffoldMessenger.of(context).showSnackBar(
 SnackBar(content: Text(message)),
 );
-}
- catch (e) {
+} catch (e) {
 ScaffoldMessenger.of(context).showSnackBar(
 SnackBar(content: Text('Failed to change password: ${e.toString()}')),
 );
@@ -149,6 +146,7 @@ SnackBar(content: Text('Failed to change password: ${e.toString()}')),
 setState(() => _isChangingPassword = false);
 }
 }
+
 Future<void> _exportUserData() async {
 try {
 final user = _auth.currentUser;
@@ -228,7 +226,25 @@ return MapEntry(key, value);
 Widget build(BuildContext context) {
 return _isLoading
 ? Center(child: CircularProgressIndicator())
-    : DefaultTabController(
+    : Theme(
+data: _isDarkMode
+? ThemeData.dark().copyWith(
+primaryColor: Colors.blueGrey,
+scaffoldBackgroundColor: Colors.black,
+textTheme: ThemeData.dark().textTheme.apply(
+bodyColor: Colors.white,
+displayColor: Colors.white,
+),
+)
+    : ThemeData.light().copyWith(
+primaryColor: Colors.blue,
+scaffoldBackgroundColor: Colors.white,
+textTheme: ThemeData.light().textTheme.apply(
+bodyColor: Colors.black,
+displayColor: Colors.black,
+),
+),
+child: DefaultTabController(
 length: 3,
 child: Scaffold(
 appBar: AppBar(
@@ -247,6 +263,7 @@ _buildProfileTab(),
 _buildSecurityTab(),
 _buildPreferencesTab(),
 ],
+),
 ),
 ),
 );
@@ -429,22 +446,10 @@ SwitchListTile(
 title: Text('Dark Mode'),
 value: _isDarkMode,
 onChanged: (value) {
-setState(() => _isDarkMode = value);
-// Implement theme change logic
-},
-),
-SizedBox(height: 24),
-Text(
-'Notifications',
-style: Theme.of(context).textTheme.titleLarge,
-),
-SizedBox(height: 16),
-SwitchListTile(
-title: Text('Enable Notifications'),
-value: _notificationsEnabled,
-onChanged: (value) {
-setState(() => _notificationsEnabled = value);
-// Implement notification preference logic
+setState(() {
+_isDarkMode = value;
+});
+_updateProfile(); // Save preference to Firestore
 },
 ),
 SizedBox(height: 24),
@@ -468,6 +473,7 @@ child: Text(language),
 }).toList(),
 onChanged: (value) {
 setState(() => _selectedLanguage = value);
+_updateProfile(); // Save preference to Firestore
 },
 ),
 SizedBox(height: 24),

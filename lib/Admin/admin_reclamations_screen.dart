@@ -16,6 +16,8 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final TextEditingController _adminNotesController = TextEditingController();
   List<DocumentSnapshot> _reclamations = [];
+  Map<String, List<DocumentSnapshot>> _reclamationsByCategory = {};
+  List<String> _categories = [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
   String? _error;
@@ -23,6 +25,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
   String _searchQuery = '';
   bool _showStats = false;
   Map<String, int> _statusCounts = {};
+  Map<String, int> _categoryCounts = {};
   Map<String, bool> _isResponding = {};
   Map<String, bool> _isActionLoading = {};
   bool _isAdmin = false;
@@ -42,6 +45,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       refreshData();
     });
   }
+
   @override
   void dispose() {
     _adminNotesController.dispose();
@@ -91,6 +95,12 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
           } else {
             _isLoading = true;
             _error = null;
+            // Clear previous data to avoid stale state
+            if (!loadMore) {
+              _reclamations = [];
+              _reclamationsByCategory = {};
+              _categories = [];
+            }
           }
         });
       }
@@ -116,19 +126,53 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
 
       if (mounted) {
         setState(() {
+          List<DocumentSnapshot> newReclamations;
           if (loadMore) {
-            _reclamations.addAll(snapshot.docs);
+            newReclamations = _reclamations..addAll(snapshot.docs);
           } else {
-            _reclamations = snapshot.docs;
+            newReclamations = snapshot.docs;
           }
+
+          // Group reclamations by category
+          final tempCategoryMap = <String, List<DocumentSnapshot>>{};
+          for (var doc in snapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>?;
+            if (data == null) continue; // Skip invalid documents
+            final category = data['category']?.toString() ?? 'Uncategorized';
+            if (!tempCategoryMap.containsKey(category)) {
+              tempCategoryMap[category] = [];
+            }
+            tempCategoryMap[category]!.add(doc);
+          }
+
+          // Merge with existing categories if loadMore
+          if (loadMore) {
+            tempCategoryMap.forEach((category, docs) {
+              if (!_reclamationsByCategory.containsKey(category)) {
+                _reclamationsByCategory[category] = [];
+              }
+              _reclamationsByCategory[category]!.addAll(docs);
+            });
+          } else {
+            _reclamationsByCategory = tempCategoryMap;
+          }
+
+          // Update categories list and sort
+          _categories = _reclamationsByCategory.keys.toList()..sort();
+          _reclamations = newReclamations;
           _lastDocument = snapshot.docs.isNotEmpty ? snapshot.docs.last : null;
           _isResponding = {for (var doc in _reclamations) doc.id: false};
           _isActionLoading = {for (var doc in _reclamations) doc.id: false};
           _isLoading = false;
           _isLoadingMore = false;
+
+          // Debug print to trace data
+          debugPrint('Loaded ${_reclamations.length} reclamations, '
+              '${_categories.length} categories, filter: $_filterStatus');
         });
       }
     } catch (e) {
+      debugPrint('Error loading reclamations: $e');
       if (mounted) {
         setState(() {
           _error = 'Failed to load reclamations: ${e.toString()}';
@@ -146,7 +190,8 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       final counts = await _firestore.collection('reclamation_stats').doc('counts').get();
       if (counts.exists && mounted) {
         setState(() {
-          _statusCounts = Map<String, int>.from(counts.data() ?? {});
+          _statusCounts = Map<String, int>.from(counts.data()?['status'] ?? {});
+          _categoryCounts = Map<String, int>.from(counts.data()?['category'] ?? {});
         });
       }
     } catch (e) {
@@ -167,12 +212,17 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
     }
 
     try {
+      final doc = _reclamations.firstWhere((d) => d.id == docId, orElse: () => throw Exception('Document not found'));
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data == null) throw Exception('Invalid document data');
+      final category = data['category']?.toString() ?? 'Uncategorized';
+
       await _firestore.collection('reclamations').doc(docId).update({
         'status': newStatus,
         'updatedAt': FieldValue.serverTimestamp(),
         'adminId': _auth.currentUser?.uid,
       });
-      await _updateStatsCounter(newStatus);
+      await _updateStatsCounter(newStatus, category: category);
       await _loadReclamations();
     } catch (e) {
       _handleError('Failed to update status', e);
@@ -185,7 +235,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
     }
   }
 
-  Future<void> _updateStatsCounter(String newStatus) async {
+  Future<void> _updateStatsCounter(String newStatus, {String? category}) async {
     if (!_isAdmin) return;
 
     final docRef = _firestore.collection('reclamation_stats').doc('counts');
@@ -193,13 +243,19 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       try {
         await _firestore.runTransaction((transaction) async {
           final snapshot = await transaction.get(docRef);
-          if (snapshot.exists) {
-            final currentCounts = Map<String, int>.from(snapshot.data() ?? {});
-            currentCounts[newStatus] = (currentCounts[newStatus] ?? 0) + 1;
-            transaction.update(docRef, currentCounts);
-          } else {
-            transaction.set(docRef, {newStatus: 1});
+          final currentData = snapshot.exists ? snapshot.data()! : {};
+          final currentStatusCounts = Map<String, int>.from(currentData['status'] ?? {});
+          final currentCategoryCounts = Map<String, int>.from(currentData['category'] ?? {});
+
+          currentStatusCounts[newStatus] = (currentStatusCounts[newStatus] ?? 0) + 1;
+          if (category != null) {
+            currentCategoryCounts[category] = (currentCategoryCounts[category] ?? 0) + 1;
           }
+
+          transaction.set(docRef, {
+            'status': currentStatusCounts,
+            'category': currentCategoryCounts,
+          });
         });
         return;
       } catch (e) {
@@ -259,20 +315,17 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
   }
 
   Future<void> _addAdminResponse(String docId, String response) async {
-    // Validate input
     final trimmedResponse = response.trim();
     if (trimmedResponse.isEmpty) {
       _showSnackbar('Response cannot be empty');
       return;
     }
 
-    // Check admin privileges
     if (!_isAdmin) {
       _showPermissionDeniedSnackbar();
       return;
     }
 
-    // Set loading state
     if (mounted) {
       setState(() {
         _isActionLoading[docId] = true;
@@ -286,41 +339,38 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
         throw Exception('User not authenticated');
       }
 
+      final doc = _reclamations.firstWhere((d) => d.id == docId, orElse: () => throw Exception('Document not found'));
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data == null) throw Exception('Invalid document data');
+      final category = data['category']?.toString() ?? 'Uncategorized';
+
       final responseData = {
         'message': trimmedResponse,
-        'createdAt': Timestamp.now(), // Use Timestamp.now() instead of FieldValue.serverTimestamp()
+        'createdAt': Timestamp.now(),
         'adminId': user.uid,
         'adminName': user.displayName ?? 'Admin',
       };
 
       final docRef = _firestore.collection('reclamations').doc(docId);
 
-      // Use a transaction to ensure atomic updates
       await _firestore.runTransaction((transaction) async {
         final docSnapshot = await transaction.get(docRef);
         if (!docSnapshot.exists) {
           throw Exception('Reclamation document not found');
         }
 
-        // Get the current adminResponses array (or initialize as empty)
         final currentResponses = (docSnapshot.data()?['adminResponses'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
-
-        // Append the new response
         currentResponses.add(responseData);
 
-        // Update the document with the full array and other fields
         transaction.update(docRef, {
           'adminResponses': currentResponses,
-          'updatedAt': Timestamp.now(), // Use Timestamp.now() for consistency
+          'updatedAt': Timestamp.now(),
           'status': 'in-progress',
           'adminId': user.uid,
         });
       });
 
-      // Update stats counter
-      await _updateStatsCounter('in-progress');
-
-      // Clear input and reset responding state
+      await _updateStatsCounter('in-progress', category: category);
       _adminNotesController.clear();
       if (mounted) {
         setState(() {
@@ -328,12 +378,9 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
         });
       }
 
-      // Refresh reclamations list
       await _loadReclamations();
-
       _showSnackbar('Response added successfully');
     } catch (e) {
-      // Enhanced error handling
       String errorMessage = 'Failed to add response';
       if (e is FirebaseException) {
         if (e.code == 'permission-denied') {
@@ -345,11 +392,10 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
         }
       } else {
         errorMessage = '$errorMessage: ${e.toString()}';
-        debugPrint('Error in _addAdminResponse: $e'); // Log for debugging
+        debugPrint('Error in _addAdminResponse: $e');
       }
       _showSnackbar(errorMessage);
     } finally {
-      // Ensure loading state is reset
       if (mounted) {
         setState(() {
           _isActionLoading[docId] = false;
@@ -357,6 +403,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       }
     }
   }
+
   void _showSnackbar(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -367,7 +414,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
 
   void _showPermissionDeniedSnackbar() {
     _showSnackbar('Admin privileges required');
-
   }
 
   void _handleError(String prefix, dynamic error) {
@@ -526,8 +572,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                 const Text('Reclamation Stats',
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 IconButton(
-                  icon:
-                  Icon(_showStats ? Icons.expand_less : Icons.expand_more),
+                  icon: Icon(_showStats ? Icons.expand_less : Icons.expand_more),
                   onPressed: () => setState(() => _showStats = !_showStats),
                 ),
               ],
@@ -537,13 +582,20 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: _statusOptions.where((s) => s != 'all').map((status) {
-                  return Chip(
-                    label: Text(
-                        '${status.toUpperCase()}: ${_statusCounts[status] ?? 0}'),
-                    backgroundColor: _getStatusColor(status).withOpacity(0.2),
-                  );
-                }).toList(),
+                children: [
+                  ..._statusOptions.where((s) => s != 'all').map((status) {
+                    return Chip(
+                      label: Text('${status.toUpperCase()}: ${_statusCounts[status] ?? 0}'),
+                      backgroundColor: _getStatusColor(status).withOpacity(0.2),
+                    );
+                  }),
+                  ..._categoryCounts.keys.map((category) {
+                    return Chip(
+                      label: Text('$category: ${_categoryCounts[category] ?? 0}'),
+                      backgroundColor: Colors.purple.withOpacity(0.2),
+                    );
+                  }),
+                ],
               ),
             ],
           ],
@@ -568,7 +620,10 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
   }
 
   Widget _buildReclamationCard(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>?;
+    if (data == null) {
+      return const SizedBox.shrink(); // Skip invalid documents
+    }
     final createdAt = data['createdAt']?.toDate() ?? DateTime.now();
     final updatedAt = data['updatedAt']?.toDate();
     final formattedDate = DateFormat('MMM d, y').format(createdAt);
@@ -580,14 +635,14 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       child: ExpansionTile(
         leading: _buildStatusChip(data['status'] ?? 'pending'),
         title: Text(
-          data['subject'] ?? 'No Subject',
+          data['subject']?.toString() ?? 'No Subject',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('From: ${data['email'] ?? 'Unknown'}'),
+            Text('From: ${data['email']?.toString() ?? 'Unknown'}'),
             if (updatedAt != null)
               Text('Updated: ${DateFormat('MMM d').format(updatedAt)}'),
           ],
@@ -613,7 +668,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                 const Text('Message:',
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                Text(data['message'] ?? 'No message provided'),
+                Text(data['message']?.toString() ?? 'No message provided'),
                 _buildAdminResponses(responses),
                 if (_isAdmin && _isResponding[doc.id] == true)
                   _buildResponseInput(doc.id)
@@ -640,7 +695,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                   children: [
                     if (_isAdmin)
                       DropdownButton<String>(
-                        value: data['status'],
+                        value: data['status']?.toString(),
                         items: _statusOptions
                             .where((s) => s != 'all')
                             .map((status) {
@@ -693,9 +748,10 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                 if (mounted) {
                   setState(() {
                     _filterStatus = selected ? status : 'all';
+                    debugPrint('Filter changed to: $_filterStatus');
                   });
+                  _loadReclamations();
                 }
-                _loadReclamations();
               },
             ),
           );
@@ -762,7 +818,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       );
     }
 
-    if (_reclamations.isEmpty) {
+    if (_reclamations.isEmpty || _categories.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -804,13 +860,25 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
           }
           return false;
         },
-        child: ListView.builder(
-          itemCount: _reclamations.length + (_lastDocument != null ? 3 : 2),
-          itemBuilder: (context, index) {
-            if (index == 0) return _buildStatsCard();
-            if (index == 1) return const SizedBox(height: 16);
-            if (index == _reclamations.length + 2 && _lastDocument != null) {
-              return Padding(
+        child: ListView(
+          children: [
+            _buildStatsCard(),
+            const SizedBox(height: 16),
+            ..._categories.map((category) {
+              final categoryReclamations = _reclamationsByCategory[category] ?? [];
+              if (categoryReclamations.isEmpty) return const SizedBox.shrink();
+              return ExpansionTile(
+                title: Text(
+                  '$category (${categoryReclamations.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                children: categoryReclamations
+                    .map((doc) => _buildReclamationCard(doc))
+                    .toList(),
+              );
+            }).where((widget) => widget != const SizedBox.shrink()),
+            if (_lastDocument != null)
+              Padding(
                 padding: const EdgeInsets.all(16),
                 child: Center(
                   child: _isLoadingMore
@@ -820,14 +888,8 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                     child: const Text('Load More'),
                   ),
                 ),
-              );
-            }
-            final reclamationIndex = index - 2;
-            if (reclamationIndex < _reclamations.length) {
-              return _buildReclamationCard(_reclamations[reclamationIndex]);
-            }
-            return const SizedBox.shrink();
-          },
+              ),
+          ],
         ),
       ),
     );

@@ -8,6 +8,7 @@ import 'user_management_screen.dart';
 import 'settings_screen.dart';
 import 'admin_reclamations_screen.dart';
 import 'events_screen.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
@@ -534,9 +535,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   final TextEditingController _notificationController = TextEditingController();
   bool _isSending = false;
   bool _isSendingToAll = false;
-  String? _selectedUserId;
   String _selectedCategory = 'Nothing';
   List<Map<String, dynamic>> _users = [];
+  List<String> _selectedUserIds = [];
   int _totalUsers = 0;
 
   @override
@@ -576,9 +577,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _sendNotification() async {
-    if (_notificationController.text.isEmpty || _selectedUserId == null) {
+    if (_notificationController.text.isEmpty || _selectedUserIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a user and enter a message')),
+        const SnackBar(content: Text('Please select at least one user and enter a message')),
       );
       return;
     }
@@ -586,30 +587,38 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     setState(() => _isSending = true);
 
     try {
-      final notificationData = {
-        'message': _notificationController.text,
-        'timestamp': FieldValue.serverTimestamp(),
-        'read': false,
-        'userId': _selectedUserId,
-        'senderId': _auth.currentUser?.uid ?? 'unknown',
-        'senderRole': 'admin',
-        'category': _selectedCategory,
-        'isEmergency': _selectedCategory != 'Nothing',
-      };
-
       final collection = _selectedCategory == 'Nothing' ? 'notifications' : 'alerts';
-      await _firestore.collection(collection).add(notificationData);
+      final batch = _firestore.batch();
+
+      for (final userId in _selectedUserIds) {
+        final docRef = _firestore.collection(collection).doc();
+        batch.set(docRef, {
+          'message': _notificationController.text,
+          'timestamp': FieldValue.serverTimestamp(),
+          'read': false,
+          'userId': userId,
+          'senderId': _auth.currentUser?.uid ?? 'unknown',
+          'senderRole': 'admin',
+          'category': _selectedCategory,
+          'isEmergency': _selectedCategory != 'Nothing',
+        });
+      }
+
+      await batch.commit();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_selectedCategory == 'Nothing'
-              ? 'Notification sent successfully'
-              : 'Emergency alert sent successfully'),
+              ? 'Notification sent to ${_selectedUserIds.length} user(s)'
+              : 'Emergency alert sent to ${_selectedUserIds.length} user(s)'),
         ),
       );
 
       _notificationController.clear();
-      setState(() => _selectedCategory = 'Nothing');
+      setState(() {
+        _selectedCategory = 'Nothing';
+        _selectedUserIds.clear();
+      });
     } catch (e) {
       print('Error sending notification: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -669,7 +678,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ),
       );
       _notificationController.clear();
-      setState(() => _selectedCategory = 'Nothing');
+      setState(() {
+        _selectedCategory = 'Nothing';
+        _selectedUserIds.clear();
+      });
     } catch (e) {
       print('Error sending to all users: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -810,6 +822,54 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
+  Widget _buildUserSelection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Select Users',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        SizedBox(height: 8),
+        Container(
+          height: 200,
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: _users.isEmpty
+              ? Center(child: Text('No users available', style: Theme.of(context).textTheme.bodyMedium))
+              : ListView.builder(
+            itemCount: _users.length,
+            itemBuilder: (context, index) {
+              final user = _users[index];
+              final isSelected = _selectedUserIds.contains(user['id']);
+              return CheckboxListTile(
+                title: Text(
+                  '${user['name']} (${user['email']})',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                value: isSelected,
+                onChanged: (bool? value) {
+                  setState(() {
+                    if (value == true) {
+                      _selectedUserIds.add(user['id']);
+                    } else {
+                      _selectedUserIds.remove(user['id']);
+                    }
+                  });
+                },
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -855,32 +915,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     onChanged: (value) => setState(() => _selectedCategory = value!),
                   ),
                   SizedBox(height: 12),
+                  _buildUserSelection(),
+                  SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _selectedUserId,
-                          decoration: InputDecoration(
-                            labelText: 'Select User',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                          ),
-                          items: [
-                            ..._users.map((user) {
-                              return DropdownMenuItem<String>(
-                                value: user['id'],
-                                child: Text(
-                                  '${user['name']} (${user['email']})',
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              );
-                            }).toList(),
-                          ],
-                          onChanged: (value) => setState(() => _selectedUserId = value),
+                        child: Text(
+                          '${_selectedUserIds.length} user(s) selected',
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ),
-                      SizedBox(width: 12),
                       ElevatedButton(
                         onPressed: _isSending ? null : _sendNotification,
                         child: Text(_isSending ? 'Sending...' : 'Send', style: TextStyle(fontSize: 12)),

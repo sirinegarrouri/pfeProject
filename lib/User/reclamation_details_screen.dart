@@ -1,221 +1,187 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
-class ReclamationDetailsScreen extends StatefulWidget {
+class ReclamationDetailsScreen extends StatelessWidget {
   final String reclamationId;
 
   const ReclamationDetailsScreen({Key? key, required this.reclamationId}) : super(key: key);
 
   @override
-  _ReclamationDetailsScreenState createState() => _ReclamationDetailsScreenState();
-}
-
-class _ReclamationDetailsScreenState extends State<ReclamationDetailsScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  bool _isLoading = true;
-  Map<String, dynamic>? _reclamation;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadReclamation();
-  }
-
-  Future<void> _loadReclamation() async {
-    setState(() => _isLoading = true);
-    try {
-      final doc = await _firestore.collection('reclamations').doc(widget.reclamationId).get();
-      if (!doc.exists) {
-        setState(() {
-          _error = 'Reclamation not found';
-          _isLoading = false;
-        });
-        return;
-      }
-      setState(() {
-        _reclamation = doc.data();
-        _isLoading = false;
-      });
-    } catch (e) {
-      print('Error loading reclamation: $e');
-      setState(() {
-        _error = 'Failed to load reclamation: $e';
-        _isLoading = false;
-      });
-    }
-  }
-
-  Widget _buildStatusChip(String status) {
-    Color backgroundColor;
-    Color textColor;
-
-    switch (status.toLowerCase()) {
-      case 'pending':
-        backgroundColor = Colors.orange.shade100;
-        textColor = Colors.orange.shade800;
-        break;
-      case 'in-progress':
-        backgroundColor = Colors.blue.shade100;
-        textColor = Colors.blue.shade800;
-        break;
-      case 'resolved':
-        backgroundColor = Colors.green.shade100;
-        textColor = Colors.green.shade800;
-        break;
-      case 'rejected':
-        backgroundColor = Colors.red.shade100;
-        textColor = Colors.red.shade800;
-        break;
-      default:
-        backgroundColor = Colors.grey.shade100;
-        textColor = Colors.grey.shade800;
-    }
-
-    return Chip(
-      label: Text(
-        status.toUpperCase(),
-        style: TextStyle(color: textColor, fontSize: 12),
-      ),
-      backgroundColor: backgroundColor,
-    );
-  }
-
-  Widget _buildAdminResponses(List<dynamic>? responses) {
-    if (responses == null || responses.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 16.0),
-        child: Text(
-          'No admin responses yet',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 16),
-        Text(
-          'Admin Responses:',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        ...responses.map((response) {
-          final data = response as Map<String, dynamic>;
-          final date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-          final formattedDate = DateFormat('MMM d, y h:mm a').format(date);
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            color: Colors.teal.shade50,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        data['adminName'] ?? 'Admin',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        formattedDate,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    data['message'] ?? '',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ],
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: Text('Reclamation Details')),
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(title: Text('Reclamation Details')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
-              SizedBox(height: 16),
-              Text(
-                _error!,
-                style: Theme.of(context).textTheme.titleMedium,
-                textAlign: TextAlign.center,
-              ),
-              SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _loadReclamation,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: Text('Retry', style: TextStyle(fontSize: 12)),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final createdAt = (_reclamation?['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-    final formattedDate = DateFormat('MMM d, y h:mm a').format(createdAt);
+    final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+    final FirebaseAuth _auth = FirebaseAuth.instance;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Reclamation Details'),
+        title: const Text('Reclamation Details'),
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(16),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: _firestore.collection('reclamations').doc(reclamationId).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error: ${snapshot.error}',
+                style: const TextStyle(color: Colors.red),
+              ),
+            );
+          }
+
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return const Center(
+              child: Text(
+                'Reclamation not found',
+                style: TextStyle(color: Colors.grey),
+              ),
+            );
+          }
+
+          final data = snapshot.data!.data() as Map<String, dynamic>;
+          final userId = data['userId'] as String?;
+          final currentUser = _auth.currentUser;
+
+          if (userId != currentUser?.uid) {
+            return const Center(
+              child: Text(
+                'You do not have permission to view this reclamation',
+                style: TextStyle(color: Colors.red),
+              ),
+            );
+          }
+
+          final category = data['category'] as String? ?? 'N/A';
+          final subject = data['subject'] as String? ?? 'N/A';
+          final message = data['message'] as String? ?? 'N/A';
+          final status = data['status'] as String? ?? 'Pending';
+          final adminResponse = data['adminResponse'] as String? ?? 'No response yet';
+          final createdAt = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final formattedDate = DateFormat('MMM d, y h:mm a').format(createdAt);
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailCard(
+                  context,
+                  'Category',
+                  category,
+                  Icons.category,
+                ),
+                const SizedBox(height: 16),
+                _buildDetailCard(
+                  context,
+                  'Subject',
+                  subject,
+                  Icons.subject,
+                ),
+                const SizedBox(height: 16),
+                _buildDetailCard(
+                  context,
+                  'Message',
+                  message,
+                  Icons.message,
+
+                ),
+                const SizedBox(height: 16),
+                _buildDetailCard(
+                  context,
+                  'Status',
+                  status.capitalize(),
+                  Icons.info,
+                  statusColor(status),
+                ),
+                const SizedBox(height: 16),
+                _buildDetailCard(
+                  context,
+                  'Admin Response',
+                  adminResponse,
+                  Icons.admin_panel_settings,
+
+                ),
+                const SizedBox(height: 16),
+                _buildDetailCard(
+                  context,
+                  'Submitted On',
+                  formattedDate,
+                  Icons.calendar_today,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDetailCard(
+      BuildContext context,
+      String title,
+      String content,
+      IconData icon, [
+        Color? textColor,
+        int maxLines = 1,
+      ]) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _reclamation?['subject'] ?? 'No Subject',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                Icon(icon, size: 20, color: Colors.teal),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.teal,
+                  ),
+                ),
+              ],
             ),
-            SizedBox(height: 8),
-            _buildStatusChip(_reclamation?['status'] ?? 'pending'),
-            SizedBox(height: 16),
+            const SizedBox(height: 8),
             Text(
-              'Submitted: $formattedDate',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+              content,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: textColor ?? Colors.black87,
+              ),
+              maxLines: maxLines,
+              overflow: TextOverflow.ellipsis,
             ),
-            SizedBox(height: 16),
-            Text(
-              'Message:',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            SizedBox(height: 8),
-            Text(
-              _reclamation?['message'] ?? 'No message provided',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            _buildAdminResponses(_reclamation?['adminResponses'] as List<dynamic>?),
           ],
         ),
       ),
     );
+  }
+
+  Color statusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'approved':
+        return Colors.green;
+      case 'rejected':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// Extension to capitalize the first letter of a string
+extension StringExtension on String {
+  String capitalize() {
+    if (isEmpty) return this;
+    return '${this[0].toUpperCase()}${substring(1).toLowerCase()}';
   }
 }
