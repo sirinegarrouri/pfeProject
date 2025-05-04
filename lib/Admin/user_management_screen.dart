@@ -10,7 +10,8 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  List<Map<String, dynamic>> _users = [];
+  List<Map<String, dynamic>> _approvedUsers = [];
+  List<Map<String, dynamic>> _pendingUsers = [];
   bool _isLoading = true;
   String _searchQuery = '';
   int _rowsPerPage = 10;
@@ -27,17 +28,29 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     setState(() => _isLoading = true);
     try {
       final snapshot = await _firestore.collection('users').get();
+      final approved = <Map<String, dynamic>>[];
+      final pending = <Map<String, dynamic>>[];
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final user = {
+          'id': doc.id,
+          'email': data['email'] ?? 'No email',
+          'phone': data['phone'] ?? '',
+          'role': data['role'] ?? 'user',
+          'status': data['status'] ?? 'pending',
+          'createdAt': data['createdAt']?.toDate(),
+        };
+        if (user['status'] == 'approved') {
+          approved.add(user);
+        } else if (user['status'] == 'pending') {
+          pending.add(user);
+        }
+      }
+
       setState(() {
-        _users = snapshot.docs.map((doc) {
-          final data = doc.data();
-          return {
-            'id': doc.id,
-            'email': data['email'] ?? 'No email',
-            'phone': data['phone'] ?? '',
-            'role': data['role'] ?? 'user',
-            'createdAt': data['createdAt']?.toDate(),
-          };
-        }).toList();
+        _approvedUsers = approved;
+        _pendingUsers = pending;
         _isLoading = false;
       });
     } catch (e) {
@@ -62,39 +75,71 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     }
   }
 
-  List<Map<String, dynamic>> get _filteredUsers {
-    return _users.where((user) {
+  Future<void> _approveUser(String userId) async {
+    try {
+      await _firestore.collection('users').doc(userId).update({
+        'status': 'approved',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('User approved successfully')),
+      );
+      _loadUsers();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to approve user: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<void> _rejectUser(String userId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Confirm Reject'),
+        content: Text('Are you sure you want to reject this user? This will delete their account.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Reject', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _firestore.collection('users').doc(userId).delete();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('User rejected and removed')),
+        );
+        _loadUsers();
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reject user: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredApprovedUsers {
+    return _approvedUsers.where((user) {
       final matchesSearch = user['email'].toString().toLowerCase().contains(_searchQuery.toLowerCase());
       final matchesRole = _selectedRole == null || user['role'] == _selectedRole;
       return matchesSearch && matchesRole;
     }).toList();
   }
 
-  List<Map<String, dynamic>> get _paginatedUsers {
+  List<Map<String, dynamic>> get _paginatedApprovedUsers {
     final startIndex = _currentPage * _rowsPerPage;
     final endIndex = startIndex + _rowsPerPage;
-    return _filteredUsers.sublist(
+    return _filteredApprovedUsers.sublist(
       startIndex,
-      endIndex > _filteredUsers.length ? _filteredUsers.length : endIndex,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : Column(
-        children: [
-          _buildToolbar(),
-          Expanded(
-            child: SingleChildScrollView(
-              child: _buildUsersTable(),
-            ),
-          ),
-          _buildPaginationControls(),
-        ],
-      ),
+      endIndex > _filteredApprovedUsers.length ? _filteredApprovedUsers.length : endIndex,
     );
   }
 
@@ -141,7 +186,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
   }
 
-  Widget _buildUsersTable() {
+  Widget _buildApprovedUsersTable() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: DataTable(
@@ -151,7 +196,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           DataColumn(label: Text('Role')),
           DataColumn(label: Text('Actions')),
         ],
-        rows: _paginatedUsers.map((user) {
+        rows: _paginatedApprovedUsers.map((user) {
           return DataRow(
             cells: [
               DataCell(Text(user['email'])),
@@ -194,8 +239,44 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
   }
 
+  Widget _buildPendingUsersList() {
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: _pendingUsers.length,
+      itemBuilder: (context, index) {
+        final user = _pendingUsers[index];
+        return Card(
+          margin: EdgeInsets.symmetric(vertical: 4),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.amber.withOpacity(0.1),
+              child: Icon(Icons.person, color: Colors.amber, size: 20),
+            ),
+            title: Text(user['email']),
+            subtitle: Text('Phone: ${user['phone'] ?? 'No phone'}'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.check, color: Colors.green),
+                  onPressed: () => _approveUser(user['id']),
+                  tooltip: 'Approve',
+                ),
+                IconButton(
+                  icon: Icon(Icons.close, color: Colors.red),
+                  onPressed: () => _rejectUser(user['id']),
+                  tooltip: 'Reject',
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildPaginationControls() {
-    final totalPages = (_filteredUsers.length / _rowsPerPage).ceil();
+    final totalPages = (_filteredApprovedUsers.length / _rowsPerPage).ceil();
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Row(
@@ -317,5 +398,53 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         );
       }
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('User Management', style: Theme.of(context).textTheme.titleLarge),
+          bottom: TabBar(
+            tabs: [
+              Tab(text: 'Approved Users'),
+              Tab(text: 'Pending Users'),
+            ],
+            labelStyle: Theme.of(context).textTheme.titleMedium,
+            unselectedLabelStyle: Theme.of(context).textTheme.bodyMedium,
+            indicatorColor: Theme.of(context).primaryColor,
+          ),
+        ),
+        body: _isLoading
+            ? Center(child: CircularProgressIndicator())
+            : TabBarView(
+          children: [
+            // Approved Users Tab
+            Column(
+              children: [
+                _buildToolbar(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: _buildApprovedUsersTable(),
+                  ),
+                ),
+                _buildPaginationControls(),
+              ],
+            ),
+            // Pending Users Tab
+            _pendingUsers.isEmpty
+                ? Center(
+              child: Text(
+                'No pending users',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            )
+                : _buildPendingUsersList(),
+          ],
+        ),
+      ),
+    );
   }
 }

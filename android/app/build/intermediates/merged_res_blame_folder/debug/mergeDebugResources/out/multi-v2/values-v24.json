@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.pfe_version1.app-mergeDebugResources-36:/values-v24/values-v24.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\THINKPAD\\.gradle\\caches\\8.10.2\\transforms\\707932e288a3bd88fb4a428bc13cc00f\\transformed\\media-1.1.0\\res\\values-v24\\values-v24.xml",
+                    "from": {
+                        "startLines": "2,3,4,5",
+                        "startColumns": "4,4,4,4",
+                        "startOffsets": "55,121,182,248",
+                        "endColumns": "65,60,65,66",
+                        "endOffsets": "116,177,243,310"
+                    }
+                }
+            ]
+        }
+    ]
+}

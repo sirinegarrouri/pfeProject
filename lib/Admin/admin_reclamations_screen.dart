@@ -36,7 +36,9 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
     'in-progress',
     'resolved',
     'rejected',
+    'old',
   ];
+  Timestamp? _oldThreshold; // To store the threshold for "old" reclamations
 
   @override
   void initState() {
@@ -95,7 +97,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
           } else {
             _isLoading = true;
             _error = null;
-            // Clear previous data to avoid stale state
             if (!loadMore) {
               _reclamations = [];
               _reclamationsByCategory = {};
@@ -110,7 +111,43 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
           .orderBy('createdAt', descending: true)
           .limit(20);
 
-      if (_filterStatus != 'all') {
+      if (_filterStatus == 'old') {
+
+        final oldestQuery = _firestore
+            .collection('reclamations')
+            .orderBy('createdAt', descending: false)
+            .limit(1);
+        final newestQuery = _firestore
+            .collection('reclamations')
+            .orderBy('createdAt', descending: true)
+            .limit(1);
+
+        final oldestSnapshot = await oldestQuery.get();
+        final newestSnapshot = await newestQuery.get();
+
+        if (oldestSnapshot.docs.isEmpty || newestSnapshot.docs.isEmpty) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _isLoadingMore = false;
+              _error = 'No reclamations found';
+            });
+          }
+          return;
+        }
+
+        final oldestCreatedAt = (oldestSnapshot.docs.first.data() as Map<String, dynamic>)['createdAt'] as Timestamp;
+        final newestCreatedAt = (newestSnapshot.docs.first.data() as Map<String, dynamic>)['createdAt'] as Timestamp;
+        final oldestMillis = oldestCreatedAt.millisecondsSinceEpoch;
+        final newestMillis = newestCreatedAt.millisecondsSinceEpoch;
+        final midpointMillis = oldestMillis + ((newestMillis - oldestMillis) ~/ 2);
+        _oldThreshold = Timestamp.fromMillisecondsSinceEpoch(midpointMillis);
+        query = _firestore
+            .collection('reclamations')
+            .where('createdAt', isLessThanOrEqualTo: _oldThreshold)
+            .orderBy('createdAt', descending: true)
+            .limit(20);
+      } else if (_filterStatus != 'all') {
         query = query.where('status', isEqualTo: _filterStatus);
       }
 
@@ -121,9 +158,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
       if (loadMore && _lastDocument != null) {
         query = query.startAfterDocument(_lastDocument!);
       }
-
       final snapshot = await query.get();
-
       if (mounted) {
         setState(() {
           List<DocumentSnapshot> newReclamations;
@@ -132,12 +167,10 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
           } else {
             newReclamations = snapshot.docs;
           }
-
-          // Group reclamations by category
           final tempCategoryMap = <String, List<DocumentSnapshot>>{};
           for (var doc in snapshot.docs) {
             final data = doc.data() as Map<String, dynamic>?;
-            if (data == null) continue; // Skip invalid documents
+            if (data == null) continue;
             final category = data['category']?.toString() ?? 'Uncategorized';
             if (!tempCategoryMap.containsKey(category)) {
               tempCategoryMap[category] = [];
@@ -145,7 +178,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
             tempCategoryMap[category]!.add(doc);
           }
 
-          // Merge with existing categories if loadMore
           if (loadMore) {
             tempCategoryMap.forEach((category, docs) {
               if (!_reclamationsByCategory.containsKey(category)) {
@@ -157,7 +189,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
             _reclamationsByCategory = tempCategoryMap;
           }
 
-          // Update categories list and sort
           _categories = _reclamationsByCategory.keys.toList()..sort();
           _reclamations = newReclamations;
           _lastDocument = snapshot.docs.isNotEmpty ? snapshot.docs.last : null;
@@ -166,7 +197,6 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
           _isLoading = false;
           _isLoadingMore = false;
 
-          // Debug print to trace data
           debugPrint('Loaded ${_reclamations.length} reclamations, '
               '${_categories.length} categories, filter: $_filterStatus');
         });
@@ -268,77 +298,27 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
     }
   }
 
-  Future<void> _deleteReclamation(String docId) async {
-    if (!_isAdmin) {
-      _showPermissionDeniedSnackbar();
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Deletion'),
-        content: const Text('Are you sure you want to delete this reclamation?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    if (mounted) {
-      setState(() {
-        _isActionLoading[docId] = true;
-      });
-    }
-
-    try {
-      await _firestore.collection('reclamations').doc(docId).delete();
-      await _loadReclamations();
-    } catch (e) {
-      _handleError('Failed to delete', e);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isActionLoading[docId] = false;
-        });
-      }
-    }
-  }
-
   Future<void> _addAdminResponse(String docId, String response) async {
     final trimmedResponse = response.trim();
     if (trimmedResponse.isEmpty) {
       _showSnackbar('Response cannot be empty');
       return;
     }
-
     if (!_isAdmin) {
       _showPermissionDeniedSnackbar();
       return;
     }
-
     if (mounted) {
       setState(() {
         _isActionLoading[docId] = true;
         _isResponding[docId] = true;
       });
     }
-
     try {
       final user = _auth.currentUser;
       if (user == null) {
         throw Exception('User not authenticated');
       }
-
       final doc = _reclamations.firstWhere((d) => d.id == docId, orElse: () => throw Exception('Document not found'));
       final data = doc.data() as Map<String, dynamic>?;
       if (data == null) throw Exception('Invalid document data');
@@ -560,8 +540,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
 
   Widget _buildStatsCard() {
     if (!_isAdmin) return const SizedBox.shrink();
-
-    return Card(
+return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -583,7 +562,9 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  ..._statusOptions.where((s) => s != 'all').map((status) {
+                  ..._statusOptions
+                      .where((s) => s != 'all' && s != 'old')
+                      .map((status) {
                     return Chip(
                       label: Text('${status.toUpperCase()}: ${_statusCounts[status] ?? 0}'),
                       backgroundColor: _getStatusColor(status).withOpacity(0.2),
@@ -622,22 +603,36 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
   Widget _buildReclamationCard(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>?;
     if (data == null) {
-      return const SizedBox.shrink(); // Skip invalid documents
+      return const SizedBox.shrink();
     }
     final createdAt = data['createdAt']?.toDate() ?? DateTime.now();
     final updatedAt = data['updatedAt']?.toDate();
     final formattedDate = DateFormat('MMM d, y').format(createdAt);
     final formattedTime = DateFormat('h:mm a').format(createdAt);
     final responses = data['adminResponses'] as List<dynamic>?;
+    final isOld = _oldThreshold != null &&
+        (data['createdAt'] as Timestamp).millisecondsSinceEpoch <= _oldThreshold!.millisecondsSinceEpoch;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      color: isOld ? Colors.grey.shade100 : null,
       child: ExpansionTile(
         leading: _buildStatusChip(data['status'] ?? 'pending'),
-        title: Text(
-          data['subject']?.toString() ?? 'No Subject',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                data['subject']?.toString() ?? 'No Subject',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (isOld)
+              const Chip(
+                label: Text('Old', style: TextStyle(fontSize: 12)),
+                backgroundColor: Colors.grey,
+              ),
+          ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -697,7 +692,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                       DropdownButton<String>(
                         value: data['status']?.toString(),
                         items: _statusOptions
-                            .where((s) => s != 'all')
+                            .where((s) => s != 'all' && s != 'old')
                             .map((status) {
                           return DropdownMenuItem<String>(
                             value: status,
@@ -715,14 +710,53 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
                       )
                     else
                       const SizedBox(width: 100),
-                    if (_isAdmin)
+                    if (_isAdmin && isOld)
                       IconButton(
                         icon: _isActionLoading[doc.id]!
                             ? const CircularProgressIndicator(strokeWidth: 2)
                             : const Icon(Icons.delete, color: Colors.red),
                         onPressed: _isActionLoading[doc.id]!
                             ? null
-                            : () => _deleteReclamation(doc.id),
+                            : () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Confirm Deletion'),
+                              content: const Text('Are you sure you want to delete this reclamation?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, false),
+                                  child: const Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, true),
+                                  child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirmed != true) return;
+
+                          if (mounted) {
+                            setState(() {
+                              _isActionLoading[doc.id] = true;
+                            });
+                          }
+
+                          try {
+                            await _firestore.collection('reclamations').doc(doc.id).delete();
+                            await _loadReclamations();
+                          } catch (e) {
+                            _handleError('Failed to delete', e);
+                          } finally {
+                            if (mounted) {
+                              setState(() {
+                                _isActionLoading[doc.id] = false;
+                              });
+                            }
+                          }
+                        },
                       ),
                   ],
                 ),
@@ -742,7 +776,7 @@ class _AdminReclamationsScreenState extends State<AdminReclamationsScreen> {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: FilterChip(
-              label: Text(status == 'all' ? 'All' : status),
+              label: Text(status == 'all' ? 'All' : status == 'old' ? 'Old' : status),
               selected: _filterStatus == status,
               onSelected: (selected) {
                 if (mounted) {

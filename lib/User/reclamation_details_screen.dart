@@ -178,7 +178,6 @@ class ReclamationDetailsScreen extends StatelessWidget {
   }
 }
 
-// Extension to capitalize the first letter of a string
 extension StringExtension on String {
   String capitalize() {
     if (isEmpty) return this;

@@ -70,10 +70,7 @@ class _EventsScreenState extends State<EventsScreen> {
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      // Store event in Firestore
       await _firestore.collection('events').add(eventData);
-
-      // Send notifications to all users if toggled
       if (_sendNotification) {
         final usersSnapshot = await _firestore.collection('users').get();
         final userIds = usersSnapshot.docs.map((doc) => doc.id).toList();
@@ -103,7 +100,6 @@ class _EventsScreenState extends State<EventsScreen> {
         ),
       );
 
-      // Clear form
       _titleController.clear();
       _descriptionController.clear();
       setState(() {

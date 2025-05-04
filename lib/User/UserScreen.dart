@@ -859,7 +859,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   }
 }
 
-// Extension to capitalize the first letter of a string
 extension StringExtension on String {
   String capitalize() {
     if (isEmpty) return this;

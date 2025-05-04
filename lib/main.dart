@@ -3,11 +3,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'Login/firebase_options.dart'; // Import the FirebaseOptions class for your platform
-
+import 'Login/firebase_options.dart';
 import 'Admin/AdminScreen.dart';
 import 'User/UserScreen.dart';
-import 'LoginScreen.dart';
+import 'Login/LoginScreen.dart';
+import 'Login/waiting_page.dart'; // Import WaitingPage
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -159,19 +160,36 @@ class _AuthCheckerState extends State<AuthChecker> {
             }
 
             var userData = userSnapshot.data!.data() as Map<String, dynamic>?;
-            String role = (userData?['role'] ?? '').toString().toLowerCase();
+            String status = (userData?['status'] ?? 'pending').toString().toLowerCase();
+            String role = (userData?['role'] ?? 'user').toString().toLowerCase();
 
-            print("✅ User role from Firestore: $role");
+            print("✅ User status: $status | role: $role");
 
-            if (role == 'admin') {
-              return AdminDashboard();
-            } else if (role == 'user') {
-              return UserScreen();
+            if (status == 'pending') {
+              return WaitingPage();
+            } else if (status == 'rejected') {
+              _auth.signOut();
+              return LoginScreen();
+            } else if (status == 'approved') {
+              if (role == 'admin') {
+                return AdminDashboard();
+              } else if (role == 'user') {
+                return UserScreen();
+              } else {
+                return Scaffold(
+                  body: Center(
+                    child: Text(
+                      'Unknown role: $role',
+                      style: TextStyle(fontSize: 20, color: Colors.red),
+                    ),
+                  ),
+                );
+              }
             } else {
               return Scaffold(
                 body: Center(
                   child: Text(
-                    'Unknown role: $role',
+                    'Unknown status: $status',
                     style: TextStyle(fontSize: 20, color: Colors.red),
                   ),
                 ),
