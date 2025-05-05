@@ -7,14 +7,17 @@ import 'Login/firebase_options.dart';
 import 'Admin/AdminScreen.dart';
 import 'User/UserScreen.dart';
 import 'Login/LoginScreen.dart';
-import 'Login/waiting_page.dart'; // Import WaitingPage
+import 'Login/waiting_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Configure Firestore settings
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -23,6 +26,7 @@ void main() async {
   runApp(MyApp());
 }
 
+// Handle background FCM messages
 Future<void> _firebaseBackgroundMessageHandler(RemoteMessage message) async {
   print("🔔 Background message received: ${message.notification?.title}");
 }
@@ -59,19 +63,21 @@ class _AuthCheckerState extends State<AuthChecker> {
   }
 
   void _setupFCMTokenManagement() async {
+    // Listen for auth state changes
     _auth.authStateChanges().listen((User? user) async {
       if (user != null) {
         await _saveFcmToken(user);
       }
     });
 
+    // Handle FCM token refresh
     _messaging.onTokenRefresh.listen((newToken) async {
       print('🔄 Token refreshed: $newToken');
       final user = _auth.currentUser;
       if (user != null) {
-        await _firestore.collection('users').doc(user.uid).update({
+        await _firestore.collection('users').doc(user.uid).set({
           'fcmToken': newToken,
-        });
+        }, SetOptions(merge: true)); // Use set with merge to avoid overwriting
         print("✅ Refreshed token updated in Firestore");
       }
     });
@@ -82,9 +88,15 @@ class _AuthCheckerState extends State<AuthChecker> {
       String? token = await _messaging.getToken();
       if (token != null) {
         print('📲 FCM Token for ${user.email}: $token');
-        await _firestore.collection('users').doc(user.uid).update({
+        // Use set with merge to handle both new and existing users
+        await _firestore.collection('users').doc(user.uid).set({
           'fcmToken': token,
-        });
+          'email': user.email, // Preserve email
+          'role': 'user', // Default role
+          'phone': '', // Default phone (empty for Google Sign-In)
+          'status': 'pending', // Default status
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
         print("✅ Token saved in Firestore for ${user.uid}");
       } else {
         print("❌ Couldn't get FCM token");

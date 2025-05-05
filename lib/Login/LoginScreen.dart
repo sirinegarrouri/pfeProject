@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../Admin/AdminScreen.dart';
 import '../User/UserScreen.dart';
-import 'waiting_page.dart'; // Import the WaitingPage
+import 'waiting_page.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -13,21 +14,20 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Controllers
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final phoneController = TextEditingController();
 
-  String _selectedRole = 'user'; // Default role for sign up
-  bool _showSignUpForm = false; // Default to login form
+  String _selectedRole = 'user';
+  bool _showSignUpForm = false;
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   bool _isLoading = false;
 
-  // ---------------- LOGIN ----------------
   void _login() async {
     String email = emailController.text.trim();
     String password = passwordController.text.trim();
@@ -48,7 +48,6 @@ class _LoginScreenState extends State<LoginScreen> {
       final user = userCredential.user!;
       print("✅ Login successful: ${user.email} | UID: ${user.uid}");
 
-      // Fetch user data from Firestore using UID
       DocumentSnapshot userDoc =
       await _firestore.collection('users').doc(user.uid).get();
 
@@ -59,23 +58,22 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // Extract the role and status from Firestore data
       String role = userDoc['role'] ?? 'user';
       String status = userDoc['status'] ?? 'pending';
       print("✅ User role: $role | Status: $status");
 
-      // Save FCM token after successful login
       await _saveFcmToken(user);
 
-      // Navigate based on status and role
       if (status == 'pending') {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => WaitingPage()));
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (_) => WaitingPage()));
       } else if (status == 'approved') {
         await _navigateBasedOnRole(role);
       } else if (status == 'rejected') {
         _showDialog("Error", "Your account was rejected by the admin.");
         await _auth.signOut();
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LoginScreen()));
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (_) => LoginScreen()));
       }
     } catch (e) {
       print("❌ Login error: $e");
@@ -85,7 +83,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = false);
   }
 
-  // ---------------- SIGN UP ----------------
   void _signUp() async {
     String email = emailController.text.trim();
     String password = passwordController.text.trim();
@@ -104,7 +101,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Register the user with Firebase Authentication
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
@@ -113,23 +109,20 @@ class _LoginScreenState extends State<LoginScreen> {
       final user = userCredential.user!;
       print("✅ Sign-up successful: ${user.email} | UID: ${user.uid}");
 
-      // Add the user data to Firestore with pending status
       await _firestore.collection('users').doc(user.uid).set({
         'email': email,
         'role': _selectedRole,
         'phone': phone,
-        'status': 'pending', // Add pending status
+        'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // Save the FCM token
       await _saveFcmToken(user);
 
-      // Show success dialog
       _showDialog("Success", "Account created successfully! Waiting for admin approval.");
 
-      // Navigate to waiting page
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => WaitingPage()));
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => WaitingPage()));
     } catch (e) {
       print("❌ Sign-up error: $e");
       _showDialog("Error", e.toString());
@@ -138,16 +131,81 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = false);
   }
 
-  // ---------------- NAVIGATE BASED ON ROLE ----------------
+  void _signInWithGoogle() async {
+    setState(() => _isLoading = true);
+
+    try {
+      print("Initializing Google Sign-In...");
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        print("Google Sign-In canceled by user");
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      print("Google Sign-In user: ${googleUser.email}");
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      UserCredential userCredential = await _auth.signInWithCredential(credential);
+      final user = userCredential.user!;
+      print("✅ Google Sign-In successful: ${user.email} | UID: ${user.uid}");
+
+      DocumentSnapshot userDoc =
+      await _firestore.collection('users').doc(user.uid).get();
+
+      if (!userDoc.exists) {
+        await _firestore.collection('users').doc(user.uid).set({
+          'email': user.email,
+          'role': 'user',
+          'phone': '',
+          'status': 'pending',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        print("✅ New user added to Firestore: ${user.uid}");
+      } else {
+        print("✅ Existing user found: ${user.uid}");
+      }
+
+      await _saveFcmToken(user);
+
+      userDoc = await _firestore.collection('users').doc(user.uid).get();
+      String role = userDoc['role'] ?? 'user';
+      String status = userDoc['status'] ?? 'pending';
+
+      if (status == 'pending') {
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (_) => WaitingPage()));
+      } else if (status == 'approved') {
+        await _navigateBasedOnRole(role);
+      } else if (status == 'rejected') {
+        _showDialog("Error", "Your account was rejected by the admin.");
+        await _auth.signOut();
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (_) => LoginScreen()));
+      }
+    } catch (e) {
+      print("❌ Google Sign-In error: $e");
+      _showDialog("Error", e.toString());
+    }
+
+    setState(() => _isLoading = false);
+  }
+
   Future<void> _navigateBasedOnRole(String role) async {
     if (role == 'admin') {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AdminDashboard()));
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => AdminDashboard()));
     } else {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => UserScreen()));
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => UserScreen()));
     }
   }
 
-  // ---------------- SAVE FCM TOKEN ----------------
   Future<void> _saveFcmToken(User user) async {
     try {
       String? token = await _messaging.getToken();
@@ -162,13 +220,11 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // ---------------- VALIDATE PHONE ----------------
   bool _isValidPhoneNumber(String phone) {
     final numericRegex = RegExp(r'^[0-9]+$');
     return numericRegex.hasMatch(phone) && phone.length >= 8 && phone.length <= 15;
   }
 
-  // ---------------- SHOW DIALOG ----------------
   void _showDialog(String title, String message) {
     showDialog(
       context: context,
@@ -185,7 +241,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ---------------- UI BUILD ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -200,7 +255,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   Icon(Icons.account_circle, size: 100.0, color: Colors.blue),
                   SizedBox(height: 20),
-
                   Text(
                     _showSignUpForm ? 'Create Account' : 'Welcome Back!',
                     style: TextStyle(
@@ -209,37 +263,33 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Colors.blue[800],
                     ),
                   ),
-
                   SizedBox(height: 10),
-
                   Text(
                     _showSignUpForm ? 'Sign up to get started' : 'Login to continue',
                     style: TextStyle(fontSize: 16, color: Colors.blue[400]),
                   ),
-
                   SizedBox(height: 40),
-
-                  _buildTextField(emailController, "Email", Icons.email_outlined, false),
+                  _buildTextField(
+                      emailController, "Email", Icons.email_outlined, false),
                   SizedBox(height: 20),
-                  _buildTextField(passwordController, "Password", Icons.lock_outline, true),
-
+                  _buildTextField(
+                      passwordController, "Password", Icons.lock_outline, true),
                   if (_showSignUpForm) ...[
                     SizedBox(height: 20),
-                    _buildTextField(phoneController, "Phone Number", Icons.phone_android, false),
+                    _buildTextField(phoneController, "Phone Number",
+                        Icons.phone_android, false),
                     SizedBox(height: 20),
                     _buildRoleDropdown(),
                   ],
-
                   SizedBox(height: 30),
-
                   _buildButton(
                     _showSignUpForm ? "Sign Up" : "Sign In",
                     _showSignUpForm ? _signUp : _login,
                     Colors.blue[700]!,
                   ),
-
                   SizedBox(height: 15),
-
+                  _buildGoogleSignInButton(),
+                  SizedBox(height: 15),
                   TextButton(
                     onPressed: () {
                       setState(() {
@@ -260,7 +310,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-
           if (_isLoading)
             Container(
               color: Colors.black.withOpacity(0.5),
@@ -271,8 +320,8 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ---------------- BUILD TEXT FIELD ----------------
-  Widget _buildTextField(TextEditingController controller, String label, IconData icon, bool obscureText) {
+  Widget _buildTextField(TextEditingController controller, String label,
+      IconData icon, bool obscureText) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
@@ -295,7 +344,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ---------------- BUILD BUTTON ----------------
   Widget _buildButton(String text, VoidCallback onPressed, Color color) {
     return SizedBox(
       width: double.infinity,
@@ -305,7 +353,8 @@ class _LoginScreenState extends State<LoginScreen> {
           padding: EdgeInsets.symmetric(vertical: 15),
           child: Text(
             text,
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(
+                fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
           ),
         ),
         style: ElevatedButton.styleFrom(
@@ -318,7 +367,42 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ---------------- BUILD ROLE DROPDOWN ----------------
+  Widget _buildGoogleSignInButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed: _signInWithGoogle,
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 15),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset(
+                'assets/google_logo.png',
+                height: 24,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Sign in with Google',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.blue[700],
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: Colors.blue[700]!),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildRoleDropdown() {
     return DropdownButtonFormField<String>(
       value: _selectedRole,
