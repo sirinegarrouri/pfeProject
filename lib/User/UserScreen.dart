@@ -741,6 +741,8 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildDrawer() {
+    final userEmail = _auth.currentUser?.email ?? 'No email available';
+
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
@@ -770,6 +772,14 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
+                ),
+                Text(
+                  userEmail,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
                 Text(
                   'Welcome back',

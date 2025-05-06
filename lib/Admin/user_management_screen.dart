@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:csv/csv.dart';
+import 'package:file_picker/file_picker.dart';
 
 class UserManagementScreen extends StatefulWidget {
   @override
@@ -57,6 +61,131 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to load users: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<void> _exportUsersToCsv() async {
+    try {
+      List<List<dynamic>> csvData = [
+        ['ID', 'Email', 'Phone', 'Role', 'Status', 'Created At'],
+        ..._approvedUsers.map((user) => [
+          user['id'],
+          user['email'],
+          user['phone'],
+          user['role'],
+          user['status'],
+          user['createdAt']?.toString() ?? '',
+        ]),
+        ..._pendingUsers.map((user) => [
+          user['id'],
+          user['email'],
+          user['phone'],
+          user['role'],
+          user['status'],
+          user['createdAt']?.toString() ?? '',
+        ]),
+      ];
+
+      String csv = const ListToCsvConverter().convert(csvData);
+      final bytes = utf8.encode(csv);
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', 'users_export_${DateTime.now().toIso8601String()}.csv')
+        ..click();
+      html.Url.revokeObjectUrl(url);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Users exported successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to export users: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<void> _importUsersFromCsv() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Import Users from CSV'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Please upload a CSV file with the following format:'),
+            SizedBox(height: 8),
+            Text(
+              'ID,Email,Phone,Role,Status\n'
+                  '1,user@example.com,1234567890,user,pending',
+              style: TextStyle(fontFamily: 'Courier'),
+            ),
+            SizedBox(height: 8),
+            Text('• ID: Any unique identifier (ignored during import)'),
+            Text('• Email: User\'s email address'),
+            Text('• Phone: User\'s phone number (optional)'),
+            Text('• Role: "user" or "admin"'),
+            Text('• Status: "pending" or "approved"'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Upload File'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+
+      if (result != null && result.files.single.bytes != null) {
+        final bytes = result.files.single.bytes!;
+        final csvString = utf8.decode(bytes);
+        List<List<dynamic>> csvData = const CsvToListConverter().convert(csvString);
+
+        if (csvData.isEmpty || csvData[0].length < 4) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Invalid CSV format')),
+          );
+          return;
+        }
+
+        // Skip header row
+        for (var row in csvData.skip(1)) {
+          if (row.length >= 4) {
+            final userData = {
+              'email': row[1].toString(),
+              'phone': row[2].toString(),
+              'role': row[3].toString(),
+              'status': row[4].toString(),
+              'createdAt': FieldValue.serverTimestamp(),
+            };
+
+            await _firestore.collection('users').add(userData);
+          }
+        }
+
+        await _loadUsers();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Users imported successfully')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to import users: ${e.toString()}')),
       );
     }
   }
@@ -180,6 +309,18 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             icon: Icon(Icons.refresh),
             onPressed: _loadUsers,
             tooltip: 'Refresh users',
+          ),
+          SizedBox(width: 16),
+          IconButton(
+            icon: Icon(Icons.download),
+            onPressed: _exportUsersToCsv,
+            tooltip: 'Export users to CSV',
+          ),
+          SizedBox(width: 16),
+          IconButton(
+            icon: Icon(Icons.upload),
+            onPressed: _importUsersFromCsv,
+            tooltip: 'Import users from CSV',
           ),
         ],
       ),

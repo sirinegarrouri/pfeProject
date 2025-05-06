@@ -126,6 +126,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Widget _buildDrawer() {
+    final adminEmail = _auth.currentUser?.email ?? 'No email available';
+
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
@@ -155,6 +157,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
+                ),
+                Text(
+                  adminEmail,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
                 Text(
                   'Welcome back',
