@@ -6,15 +6,15 @@ import 'package:flutter/services.dart';
 class AccountSettingsScreen extends StatefulWidget {
   @override
   _AccountSettingsScreenState createState() => _AccountSettingsScreenState();
-}
-class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
+}class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _formKey = GlobalKey<FormState>();
 
-  late TextEditingController _nameController;
-  late TextEditingController _emailController;
-  late TextEditingController _phoneController;
+  // Initialize controllers with default empty values
+  TextEditingController _nameController = TextEditingController();
+  TextEditingController _emailController = TextEditingController();
+  TextEditingController _phoneController = TextEditingController();
   TextEditingController _currentPasswordController = TextEditingController();
   TextEditingController _newPasswordController = TextEditingController();
 
@@ -27,6 +27,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   bool _notificationsEnabled = true;
   String _language = 'English';
   ThemeMode _themeMode = ThemeMode.light;
+
   @override
   void initState() {
     super.initState();
@@ -41,26 +42,28 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       });
 
       _user = _auth.currentUser;
-      if (_user == null) return;
+      if (_user == null) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
 
       _emailVerified = _user!.emailVerified;
 
       final doc = await _firestore.collection('users').doc(_user!.uid).get();
       if (doc.exists) {
         final data = doc.data()!;
-        _nameController = TextEditingController(text: data['name'] ?? '');
-        _phoneController = TextEditingController(text: data['phone'] ?? '');
-
+        // Update controller text instead of creating new controllers
+        _nameController.text = data['name'] ?? '';
+        _phoneController.text = data['phone'] ?? '';
         _darkMode = data['preferences']?['darkMode'] ?? false;
         _notificationsEnabled = data['preferences']?['notifications'] ?? true;
         _language = data['preferences']?['language'] ?? 'English';
         _themeMode = _darkMode ? ThemeMode.dark : ThemeMode.light;
-      } else {
-        _nameController = TextEditingController();
-        _phoneController = TextEditingController();
       }
 
-      _emailController = TextEditingController(text: _user!.email);
+      _emailController.text = _user!.email ?? '';
 
       setState(() {
         _isLoading = false;
@@ -72,7 +75,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       });
     }
   }
-
   Future<void> _savePreferences() async {
     try {
       setState(() {
@@ -488,113 +490,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     );
   }
 
-  Widget _buildPreferencesSection() {
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Preferences',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            SizedBox(height: 16),
-            SwitchListTile(
-              title: Text('Dark Mode'),
-              value: _darkMode,
-              onChanged: _isLoading
-                  ? null
-                  : (value) {
-                setState(() {
-                  _darkMode = value;
-                  _themeMode = value ? ThemeMode.dark : ThemeMode.light;
-                });
-                _savePreferences();
-              },
-            ),
-            SwitchListTile(
-              title: Text('Enable Notifications'),
-              value: _notificationsEnabled,
-              onChanged: _isLoading
-                  ? null
-                  : (value) {
-                setState(() => _notificationsEnabled = value);
-                _savePreferences();
-              },
-            ),
-            ListTile(
-              title: Text('Language'),
-              trailing: DropdownButton<String>(
-                value: _language,
-                items: ['English', 'French', 'Spanish', 'German']
-                    .map((lang) => DropdownMenuItem(
-                  value: lang,
-                  child: Text(lang),
-                ))
-                    .toList(),
-                onChanged: _isLoading
-                    ? null
-                    : (value) {
-                  if (value != null) {
-                    setState(() => _language = value);
-                    _savePreferences();
-                  }
-                },
-              ),
-            ),
-            SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _savePreferences,
-                child: _isLoading
-                    ? CircularProgressIndicator()
-                    : Text('Save Preferences'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDangerZone() {
-    return Card(
-      color: _darkMode ? Colors.red.shade900 : Colors.red.shade50,
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Danger Zone',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
-                )),
-            SizedBox(height: 16),
-            Text(
-                'These actions are irreversible. Proceed with caution.',
-                style: TextStyle(
-                    color: _darkMode ? Colors.red.shade300 : Colors.red.shade700)),
-            SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _deleteAccount,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                  _darkMode ? Colors.red.shade800 : Colors.red.shade100,
-                  foregroundColor: Colors.red,
-                ),
-                child: Text('Delete Account'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _user == null) {
@@ -675,10 +570,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               _buildProfileSection(),
               SizedBox(height: 16),
               _buildSecuritySection(),
-              SizedBox(height: 16),
-              _buildPreferencesSection(),
-              SizedBox(height: 16),
-              _buildDangerZone(),
+
             ],
           ),
         ),

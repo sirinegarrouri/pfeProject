@@ -25,7 +25,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 4, vsync: this, initialIndex: 0);
     _loadData();
   }
 
@@ -61,6 +61,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
             'title': data['title'] ?? 'Untitled',
             'description': data['description'] ?? 'No description',
             'dateTime': (data['dateTime'] as Timestamp?)?.toDate() ?? DateTime.now(),
+            'category': data['category'] ?? 'General',
           };
         }).toList();
       });
@@ -274,9 +275,25 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         return Colors.blue;
       case 'reclamation update':
         return Colors.teal;
-      case 'nothing':
+      case 'general':
       default:
         return Colors.grey;
+    }
+  }
+
+  IconData _getCategoryIcon(String? category) {
+    switch (category?.toLowerCase()) {
+      case 'fire':
+        return Icons.local_fire_department;
+      case 'earthquake':
+        return Icons.gradient_rounded;
+      case 'tsunami':
+        return Icons.waves;
+      case 'reclamation update':
+        return Icons.report;
+      case 'general':
+      default:
+        return Icons.event;
     }
   }
 
@@ -364,38 +381,83 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildEventItem(Map<String, dynamic> item) {
-    final title = item['title'];
-    final description = item['description'];
+    final title = item['title'] as String;
+    final description = item['description'] as String;
     final timestamp = item['dateTime'] as DateTime;
+    final category = item['category'] as String;
     final date = DateFormat('MMM d, y h:mm a').format(timestamp);
 
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 3,
-      margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      margin: EdgeInsets.all(8),
+      child: InkWell(
+        onTap: () {
+          // Placeholder for event details navigation
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Event: $title clicked')),
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _getCategoryColor(category).withOpacity(0.1),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _getCategoryIcon(category),
+                    color: _getCategoryColor(category),
+                    size: 24,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            SizedBox(height: 4),
-            Text(
-              description,
-              style: Theme.of(context).textTheme.bodyMedium,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            SizedBox(height: 4),
-            Text(
-              'When: $date',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.black45,
+            Padding(
+              padding: EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    description,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.black54,
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 16, color: Colors.black45),
+                      SizedBox(width: 4),
+                      Text(
+                        date,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.black45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
@@ -403,7 +465,6 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
       ),
     );
   }
-
   Widget _buildReclamationItem(Map<String, dynamic> item) {
     final subject = item['subject'] as String;
     final status = item['status'] as String;
@@ -421,52 +482,10 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
     }
 
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 3,
-      margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          radius: 16,
-          backgroundColor: _getStatusColor(status).withOpacity(0.2),
-          child: Icon(
-            Icons.report,
-            size: 16,
-            color: _getStatusColor(status),
-          ),
-        ),
-        title: Text(
-          subject,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Status: ${StringExtension(status).capitalize()} • $category',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: _getStatusColor(status),
-              ),
-            ),
-            Text(
-              'Submitted: $date',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.black45,
-              ),
-            ),
-            Text(
-              'Response: ${adminResponse != null && adminResponse.isNotEmpty ? (adminResponse.length > 30 ? adminResponse.substring(0, 30) + '...' : adminResponse) : 'No response yet'}',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.black54,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 4,
+      margin: EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+      child: InkWell(
         onTap: () {
           Navigator.push(
             context,
@@ -475,13 +494,125 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
             ),
           );
         },
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Status Indicator
+              Container(
+                width: 10,
+                height: 10,
+                margin: EdgeInsets.only(top: 6, right: 12),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _getStatusColor(status),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Subject
+                    Text(
+                      subject,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 4),
+                    // Category and Status
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.category,
+                          size: 14,
+                          color: Colors.black45,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          category,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.black45,
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(status).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            StringExtension(status).capitalize(),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: _getStatusColor(status),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    // Date
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 14,
+                          color: Colors.black45,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'Submitted: $date',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.black45,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    // Admin Response
+                    Text(
+                      'Response: ${adminResponse != null && adminResponse.isNotEmpty
+                          ? (adminResponse.length > 50
+                          ? adminResponse.substring(0, 50) + '...'
+                          : adminResponse)
+                          : 'No response yet'}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.black54,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
-
   Widget _buildBody() {
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator());
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.teal),
+            SizedBox(height: 16),
+            Text(
+              'Loading...',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54),
+            ),
+          ],
+        ),
+      );
     }
 
     if (_error != null) {
@@ -523,10 +654,23 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
           padding: const EdgeInsets.all(12.0),
           child: TextField(
             decoration: InputDecoration(
-              hintText: 'Search ${_selectedTabIndex == 3 ? 'reclamations' : 'notifications'}...',
-              prefixIcon: Icon(Icons.search, size: 20),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              hintText: 'Search ${_selectedTabIndex == 3 ? 'reclamations' : _selectedTabIndex == 0 ? 'alerts' : _selectedTabIndex == 1 ? 'notifications' : 'events'}...',
+              prefixIcon: Icon(Icons.search, size: 20, color: Colors.black54),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.teal),
+              ),
               contentPadding: EdgeInsets.symmetric(vertical: 10),
+              filled: true,
+              fillColor: Colors.grey.shade50,
             ),
             style: Theme.of(context).textTheme.bodyMedium,
             onChanged: (value) => setState(() => _searchQuery = value),
@@ -534,15 +678,16 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         ),
         TabBar(
           controller: _tabController,
-          labelStyle: Theme.of(context).textTheme.bodyMedium,
+          labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           unselectedLabelColor: Colors.black54,
           labelColor: Colors.teal,
           indicatorColor: Colors.teal,
+          padding: EdgeInsets.symmetric(horizontal: 8),
           tabs: [
-            Tab(text: 'Notifications'),
-            Tab(text: 'Events'),
-            Tab(text: 'Alerts'),
-            Tab(text: 'Reclamations'),
+            Tab(icon: Icon(Icons.warning_amber, size: 20), text: 'Alerts'),
+            Tab(icon: Icon(Icons.notifications, size: 20), text: 'Notifications'),
+            Tab(icon: Icon(Icons.event, size: 20), text: 'Events'),
+            Tab(icon: Icon(Icons.report, size: 20), text: 'Reclamations'),
           ],
           onTap: (index) {
             setState(() {
@@ -554,7 +699,15 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
         Expanded(
           child: RefreshIndicator(
             onRefresh: _loadData,
+            color: Colors.teal,
             child: _selectedTabIndex == 0
+                ? ListView.builder(
+              itemCount: _alerts.length,
+              itemBuilder: (context, index) {
+                return _buildNotificationItem(_alerts[index]);
+              },
+            )
+                : _selectedTabIndex == 1
                 ? StreamBuilder<QuerySnapshot>(
               stream: _firestore
                   .collection('notifications')
@@ -564,7 +717,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(child: CircularProgressIndicator());
+                  return Center(child: CircularProgressIndicator(color: Colors.teal));
                 }
                 if (snapshot.hasError) {
                   print('Notification StreamBuilder error: ${snapshot.error}');
@@ -572,10 +725,19 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('Error: ${snapshot.error}'),
+                        Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                        SizedBox(height: 16),
+                        Text(
+                          'Error: ${snapshot.error}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => setState(() {}),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
                           child: Text('Retry'),
                         ),
                       ],
@@ -608,6 +770,11 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                           'No notifications yet',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
+                        SizedBox(height: 8),
+                        Text(
+                          'You\'ll see updates here when available.',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                        ),
                       ],
                     ),
                   );
@@ -621,8 +788,15 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                         children: [
                           TextButton.icon(
                             onPressed: _markAllAsRead,
-                            icon: Icon(Icons.mark_email_read, size: 16),
-                            label: Text('Mark all as read', style: TextStyle(fontSize: 12)),
+                            icon: Icon(Icons.mark_email_read, size: 16, color: Colors.teal),
+                            label: Text(
+                              'Mark all as read',
+                              style: TextStyle(fontSize: 12, color: Colors.teal),
+                            ),
+                            style: TextButton.styleFrom(
+                              backgroundColor: Colors.teal.withOpacity(0.1),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
                           ),
                         ],
                       ),
@@ -637,29 +811,52 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                 );
               },
             )
-                : _selectedTabIndex == 1
-                ? SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: _events.map((item) => SizedBox(
-                    width: MediaQuery.of(context).size.width > 1200
-                        ? 300
-                        : MediaQuery.of(context).size.width > 800
-                        ? 250
-                        : MediaQuery.of(context).size.width / 2 - 18,
-                    child: _buildEventItem(item),
-                  )).toList(),
-                ),
+                : _selectedTabIndex == 2
+                ? _events.isEmpty
+                ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.event_busy, size: 48, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text(
+                    'No upcoming events',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Check back later for new events.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                  ),
+                ],
               ),
             )
-                : _selectedTabIndex == 2
-                ? ListView.builder(
-              itemCount: _alerts.length,
+                : GridView.builder(
+              padding: EdgeInsets.all(12),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: MediaQuery.of(context).size.width > 1200
+                    ? 4
+                    : MediaQuery.of(context).size.width > 800
+                    ? 3
+                    : 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 0.75,
+              ),
+              itemCount: _events
+                  .where((item) =>
+              _searchQuery.isEmpty ||
+                  item['title'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                  item['description'].toString().toLowerCase().contains(_searchQuery.toLowerCase()))
+                  .length,
               itemBuilder: (context, index) {
-                return _buildNotificationItem(_alerts[index]);
+                final filteredEvents = _events
+                    .where((item) =>
+                _searchQuery.isEmpty ||
+                    item['title'].toString().toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                    item['description'].toString().toLowerCase().contains(_searchQuery.toLowerCase()))
+                    .toList();
+                return _buildEventItem(filteredEvents[index]);
               },
             )
                 : StreamBuilder<QuerySnapshot>(
@@ -670,7 +867,7 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(child: CircularProgressIndicator());
+                  return Center(child: CircularProgressIndicator(color: Colors.teal));
                 }
                 if (snapshot.hasError) {
                   print('Reclamation StreamBuilder error: ${snapshot.error}');
@@ -678,10 +875,19 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('Error: ${snapshot.error}'),
+                        Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                        SizedBox(height: 16),
+                        Text(
+                          'Error: ${snapshot.error}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => setState(() {}),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
                           child: Text('Retry'),
                         ),
                       ],
@@ -691,15 +897,13 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                 final reclamations = snapshot.data?.docs.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   print('Reclamation ${doc.id}: $data');
-                  // Extract the latest admin response message
                   String? latestResponse;
                   final adminResponses = data['adminResponses'] as List<dynamic>?;
                   if (adminResponses != null && adminResponses.isNotEmpty) {
-                    // Sort by createdAt to get the latest response
                     adminResponses.sort((a, b) {
                       final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
                       final bTime = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-                      return bTime.compareTo(aTime); // Descending
+                      return bTime.compareTo(aTime);
                     });
                     latestResponse = adminResponses.first['message']?.toString();
                   }
@@ -723,6 +927,11 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
                         Text(
                           'No reclamations yet',
                           style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Submit a reclamation to get started.',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
                         ),
                       ],
                     ),
@@ -791,32 +1000,57 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
               ],
             ),
           ),
-          ListTile(
-            leading: Icon(Icons.notifications, size: 20),
-            title: Text('Notifications', style: Theme.of(context).textTheme.bodyMedium),
-            selected: true,
+          _buildDrawerItem(
+            icon: Icons.notifications,
+            title: 'Notifications',
+            isSelected: true,
             onTap: () => Navigator.pop(context),
           ),
-          ListTile(
-            leading: Icon(Icons.report_problem, size: 20),
-            title: Text('Reclamation', style: Theme.of(context).textTheme.bodyMedium),
+          _buildDrawerItem(
+            icon: Icons.report_problem,
+            title: 'Reclamation',
             onTap: _navigateToReclamation,
           ),
-          ListTile(
-            leading: Icon(Icons.settings, size: 20),
-            title: Text('Account Settings', style: Theme.of(context).textTheme.bodyMedium),
+          _buildDrawerItem(
+            icon: Icons.settings,
+            title: 'Account Settings',
             onTap: _navigateToAccountSettings,
           ),
-          Divider(),
-          ListTile(
-            leading: Icon(Icons.exit_to_app, size: 20),
-            title: Text('Sign Out', style: Theme.of(context).textTheme.bodyMedium),
+          Divider(color: Colors.grey.shade300),
+          _buildDrawerItem(
+            icon: Icons.exit_to_app,
+            title: 'Sign Out',
             onTap: () async {
               await _auth.signOut();
               Navigator.pop(context);
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDrawerItem({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool isSelected = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        color: isSelected ? Colors.teal.withOpacity(0.1) : Colors.transparent,
+        child: ListTile(
+          leading: Icon(icon, size: 20, color: isSelected ? Colors.teal : Colors.black54),
+          title: Text(
+            title,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: isSelected ? Colors.teal : Colors.black87,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+          hoverColor: Colors.teal.withOpacity(0.05),
+        ),
       ),
     );
   }
@@ -843,13 +1077,17 @@ class _UserScreenState extends State<UserScreen> with SingleTickerProviderStateM
       appBar: AppBar(
         title: Text(
           _selectedTabIndex == 0
-              ? 'Notifications'
-              : _selectedTabIndex == 1
-              ? 'Events'
-              : _selectedTabIndex == 2
               ? 'Alerts'
+              : _selectedTabIndex == 1
+              ? 'Notifications'
+              : _selectedTabIndex == 2
+              ? 'Events'
               : 'Reclamations',
+          style: TextStyle(fontWeight: FontWeight.w600),
         ),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
           IconButton(
             icon: Icon(Icons.refresh, size: 20),

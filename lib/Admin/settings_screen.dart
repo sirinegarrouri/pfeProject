@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io' show File;
+import 'dart:io' show File, Platform;
 import 'package:share_plus/share_plus.dart';
 import 'package:universal_html/html.dart' as html;
 
@@ -30,7 +30,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showCurrentPassword = false;
   bool _showNewPassword = false;
   bool _isDarkMode = false;
-  String? _selectedLanguage = 'English';
+  bool _is2FAEnabled = false;
+  bool _isLoginNotificationsEnabled = false;
 
   @override
   void initState() {
@@ -63,7 +64,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _nameController.text = data['name'] ?? '';
             _emailController.text = user.email ?? '';
             _isDarkMode = data['darkMode'] ?? false;
-            _selectedLanguage = data['language'] ?? 'English';
+            _is2FAEnabled = data['twoFactorEnabled'] ?? false;
+            _isLoginNotificationsEnabled = data['loginNotifications'] ?? false;
           });
         }
       }
@@ -86,7 +88,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await _firestore.collection('users').doc(user.uid).update({
           'name': _nameController.text,
           'darkMode': _isDarkMode,
-          'language': _selectedLanguage,
+          'twoFactorEnabled': _is2FAEnabled,
+          'loginNotifications': _isLoginNotificationsEnabled,
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
@@ -110,7 +113,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final user = _auth.currentUser;
       if (user != null && user.email != null) {
-        // Reauthenticate first
         final cred = EmailAuthProvider.credential(
           email: user.email!,
           password: _currentPasswordController.text,
@@ -145,6 +147,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _toggle2FA(bool enable) async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null) {
+        if (enable) {
+          // Send verification email for 2FA
+          await user.sendEmailVerification();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Verification email sent. Please verify to enable 2FA.'),
+            ),
+          );
+        }
+
+        await _firestore.collection('users').doc(user.uid).update({
+          'twoFactorEnabled': enable,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        setState(() => _is2FAEnabled = enable);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('2-Factor Authentication ${enable ? 'enabled' : 'disabled'}'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update 2FA settings: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<void> _toggleLoginNotifications(bool enable) async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null) {
+        await _firestore.collection('users').doc(user.uid).update({
+          'loginNotifications': enable,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        setState(() => _isLoginNotificationsEnabled = enable);
+
+        // Log login attempt if notifications are enabled
+        if (enable) {
+          await _firestore.collection('login_notifications').add({
+            'userId': user.uid,
+            'timestamp': FieldValue.serverTimestamp(),
+            'deviceInfo': await _getDeviceInfo(),
+          });
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login notifications ${enable ? 'enabled' : 'disabled'}'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update notification settings: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<String> _getDeviceInfo() async {
+    // In a real app, you'd use device_info_plus package
+    return 'Device: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}';
+  }
+
   Future<void> _exportUserData() async {
     try {
       final user = _auth.currentUser;
@@ -162,7 +236,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final fileName = 'user_data_$timestamp.json';
 
       if (kIsWeb) {
-        // Web-specific code using universal_html
         final bytes = Uint8List.fromList(utf8.encode(jsonString));
         final blob = html.Blob([bytes]);
         final url = html.Url.createObjectUrlFromBlob(blob);
@@ -171,12 +244,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ..click();
         html.Url.revokeObjectUrl(url);
       } else {
-        // Mobile/desktop-specific code
         final directory = await getTemporaryDirectory();
         final file = File('${directory.path}/$fileName');
         await file.writeAsString(jsonString);
-
-        // Share the file
         await Share.shareXFiles([XFile(file.path)], text: 'Here is my exported data');
       }
 
@@ -192,26 +262,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // Helper function to convert Firestore-specific types to serializable formats
   Map<String, dynamic> _convertFirestoreData(Map<String, dynamic> data) {
     return data.map((key, value) {
-      // Convert Timestamp to DateTime string
       if (value is Timestamp) {
         return MapEntry(key, value.toDate().toIso8601String());
-      }
-      // Handle nested maps
-      else if (value is Map<String, dynamic>) {
+      } else if (value is Map<String, dynamic>) {
         return MapEntry(key, _convertFirestoreData(value));
-      }
-      // Handle lists that might contain Timestamps
-      else if (value is List) {
+      } else if (value is List) {
         return MapEntry(key, value.map((item) {
           if (item is Timestamp) return item.toDate().toIso8601String();
           if (item is Map<String, dynamic>) return _convertFirestoreData(item);
           return item;
         }).toList());
       }
-      // Return other values as-is
       return MapEntry(key, value);
     });
   }
@@ -405,19 +468,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(height: 16),
             SwitchListTile(
               title: Text('Two-Factor Authentication'),
-              subtitle: Text('Add an extra layer of security to your account'),
-              value: false,
-              onChanged: (value) {
-                // Implement 2FA logic
-              },
+              subtitle: Text('Add an extra layer of security with email verification'),
+              value: _is2FAEnabled,
+              onChanged: (value) => _toggle2FA(value),
             ),
             SwitchListTile(
               title: Text('Login Notifications'),
-              subtitle: Text('Get notified when someone logs into your account'),
-              value: true,
-              onChanged: (value) {
-                // Implement notification logic
-              },
+              subtitle: Text('Receive notifications for account login attempts'),
+              value: _isLoginNotificationsEnabled,
+              onChanged: (value) => _toggleLoginNotifications(value),
             ),
           ],
         ),
@@ -443,30 +502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() {
                 _isDarkMode = value;
               });
-              _updateProfile(); // Save preference to Firestore
-            },
-          ),
-          SizedBox(height: 24),
-          Text(
-            'Language',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            value: _selectedLanguage,
-            decoration: InputDecoration(
-              labelText: 'App Language',
-              border: OutlineInputBorder(),
-            ),
-            items: ['English', 'French', 'Spanish', 'German', 'Arabic'].map((language) {
-              return DropdownMenuItem<String>(
-                value: language,
-                child: Text(language),
-              );
-            }).toList(),
-            onChanged: (value) {
-              setState(() => _selectedLanguage = value);
-              _updateProfile(); // Save preference to Firestore
+              _updateProfile();
             },
           ),
           SizedBox(height: 24),
@@ -480,14 +516,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: Text('Export Data'),
             subtitle: Text('Download a copy of your data'),
             onTap: _exportUserData,
-          ),
-          ListTile(
-            leading: Icon(Icons.delete),
-            title: Text('Clear Cache'),
-            subtitle: Text('Free up storage space'),
-            onTap: () {
-              // Implement cache clearing
-            },
           ),
         ],
       ),

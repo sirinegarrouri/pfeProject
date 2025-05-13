@@ -162,8 +162,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           );
           return;
         }
-
-        // Skip header row
         for (var row in csvData.skip(1)) {
           if (row.length >= 4) {
             final userData = {
@@ -496,7 +494,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 Navigator.pop(context);
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Failed to update user: ${e.toString()}')),
+                                                                                                                    SnackBar(content: Text('Failed to update user: ${e.toString()}')),
                 );
               }
             },
